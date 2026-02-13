@@ -1,3 +1,12 @@
+Running cpt code:
+1. cd into project folder (where you have the py file)
+2. python3 -m venv .venv
+3. source .venv/bin/activate
+4. pip install ortools (only need to install once your env will save it)
+5. python3 cpt-solver.py
+
+
+
 # West Philadelphia Tutoring Project
 
 Website and matching system to match ~250 tutors with students each semester.
