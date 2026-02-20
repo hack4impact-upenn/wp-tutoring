@@ -164,3 +164,4 @@ export function runAutoMatch(): Match[] {
   addMatches(newMatches)
   return newMatches
 }
+

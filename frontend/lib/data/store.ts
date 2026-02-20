@@ -43,3 +43,4 @@ export function dropMatch(matchId: string) {
 export function clearMatches() {
   matches = []
 }
+
