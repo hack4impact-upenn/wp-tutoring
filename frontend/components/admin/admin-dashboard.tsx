@@ -463,21 +463,35 @@ export function AdminDashboard() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {tutees.map((t) => (
+                      {tutees.map((t) => {
+                        const tAny = t as unknown as Record<string, unknown>
+                        const subjects = toSubjectsArray(
+                          tAny.subjects ?? tAny.subjects_needed
+                        )
+                        const availability = toAvailabilityArray(tAny.availability)
+                        const studentName =
+                          tAny.studentFirstName && tAny.studentLastName
+                            ? `${tAny.studentFirstName} ${tAny.studentLastName}`
+                            : (tAny.name as string) ?? ""
+                        const parentName =
+                          tAny.parentFirstName && tAny.parentLastName
+                            ? `${tAny.parentFirstName} ${tAny.parentLastName}`
+                            : (tAny.email as string) ?? ""
+                        return (
                         <TableRow key={t.id}>
                           <TableCell className="font-medium">
-                            {t.studentFirstName} {t.studentLastName}
+                            {studentName}
                           </TableCell>
-                          <TableCell>{t.studentGrade}</TableCell>
+                          <TableCell>{String(tAny.studentGrade ?? tAny.grade_level ?? "")}</TableCell>
                           <TableCell className="text-sm">
-                            {t.parentFirstName} {t.parentLastName}
+                            {parentName}
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline">{t.format}</Badge>
+                            <Badge variant="outline">{(tAny.format as string) ?? ""}</Badge>
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1">
-                              {t.subjects.slice(0, 3).map((s) => (
+                              {subjects.slice(0, 3).map((s) => (
                                 <Badge
                                   key={s}
                                   variant="secondary"
@@ -486,18 +500,18 @@ export function AdminDashboard() {
                                   {s}
                                 </Badge>
                               ))}
-                              {t.subjects.length > 3 && (
+                              {subjects.length > 3 && (
                                 <Badge
                                   variant="secondary"
                                   className="text-xs"
                                 >
-                                  +{t.subjects.length - 3}
+                                  +{subjects.length - 3}
                                 </Badge>
                               )}
                             </div>
                           </TableCell>
                           <TableCell className="text-sm">
-                            {t.availability.length}
+                            {availability.length}
                           </TableCell>
                           <TableCell>
                             {matchedTuteeIds.has(t.id) ? (
@@ -509,7 +523,8 @@ export function AdminDashboard() {
                             )}
                           </TableCell>
                         </TableRow>
-                      ))}
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </div>
