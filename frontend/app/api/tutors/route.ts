@@ -1,18 +1,34 @@
 import { NextResponse } from "next/server"
-import { getTutors, addTutor } from "@/lib/data/store"
+import { getDb } from "@/lib/mongodb"
 import type { TutorApplication } from "@/lib/types"
 
 export async function GET() {
-  return NextResponse.json(getTutors())
+  try {
+    const db = await getDb("Users")
+    const tutors = await db.collection("Tutors").find({}).toArray()
+    return NextResponse.json(tutors)
+  } catch (err) {
+    console.error("Failed to fetch tutors:", err)
+    return NextResponse.json({ error: "Failed to fetch tutors" }, { status: 500 })
+  }
 }
 
 export async function POST(req: Request) {
-  const data = await req.json()
-  const tutor: TutorApplication = {
-    ...data,
-    id: `tutor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    createdAt: new Date().toISOString(),
+  try {
+    const data = await req.json()
+
+    const tutor: TutorApplication = {
+      ...data,
+      id: `tutor-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: new Date().toISOString(),
+    }
+
+    const db = await getDb("Users")
+    await db.collection("Tutors").insertOne(tutor)
+
+    return NextResponse.json(tutor, { status: 201 })
+  } catch (err) {
+    console.error("Failed to save tutor:", err)
+    return NextResponse.json({ error: "Failed to submit application" }, { status: 500 })
   }
-  addTutor(tutor)
-  return NextResponse.json(tutor, { status: 201 })
 }
