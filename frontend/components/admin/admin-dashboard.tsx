@@ -32,6 +32,28 @@ import {
   RefreshCw,
 } from "lucide-react"
 
+// Normalize subjects from backend (string) or frontend (array) to array
+function toSubjectsArray(val: unknown): string[] {
+  if (Array.isArray(val)) return val.filter((s) => typeof s === "string")
+  if (typeof val === "string")
+    return val.split(",").map((s) => s.trim()).filter(Boolean)
+  return []
+}
+
+// Normalize availability for length/count (backend may send string or JSON string)
+function toAvailabilityArray(val: unknown): unknown[] {
+  if (Array.isArray(val)) return val
+  if (typeof val === "string") {
+    try {
+      const parsed = JSON.parse(val)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+  return []
+}
+
 export function AdminDashboard() {
   const [tutors, setTutors] = useState<TutorApplication[]>([])
   const [tutees, setTutees] = useState<TuteeApplication[]>([])
@@ -352,21 +374,31 @@ export function AdminDashboard() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {tutors.map((t) => (
+                      {tutors.map((t) => {
+                        const subjects = toSubjectsArray(
+                          (t as { subjects?: unknown }).subjects
+                        )
+                        const availability = toAvailabilityArray(
+                          (t as { availability?: unknown }).availability
+                        )
+                        const displayName =
+                          (t as { name?: string }).name ??
+                          `${(t as { firstName?: string }).firstName ?? ""} ${(t as { lastName?: string }).lastName ?? ""}`.trim()
+                        return (
                         <TableRow key={t.id}>
                           <TableCell className="font-medium">
-                            {t.firstName} {t.lastName}
+                            {displayName}
                           </TableCell>
                           <TableCell className="text-sm">
                             {t.email}
                           </TableCell>
-                          <TableCell>{t.year}</TableCell>
+                          <TableCell>{(t as { year?: string }).year ?? ""}</TableCell>
                           <TableCell>
-                            <Badge variant="outline">{t.format}</Badge>
+                            <Badge variant="outline">{(t as { format?: string }).format ?? ""}</Badge>
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1">
-                              {t.subjects.slice(0, 3).map((s) => (
+                              {subjects.slice(0, 3).map((s) => (
                                 <Badge
                                   key={s}
                                   variant="secondary"
@@ -375,18 +407,18 @@ export function AdminDashboard() {
                                   {s}
                                 </Badge>
                               ))}
-                              {t.subjects.length > 3 && (
+                              {subjects.length > 3 && (
                                 <Badge
                                   variant="secondary"
                                   className="text-xs"
                                 >
-                                  +{t.subjects.length - 3}
+                                  +{subjects.length - 3}
                                 </Badge>
                               )}
                             </div>
                           </TableCell>
                           <TableCell className="text-sm">
-                            {t.availability.length}
+                            {availability.length}
                           </TableCell>
                           <TableCell>
                             {matchedTutorIds.has(t.id) ? (
@@ -398,7 +430,8 @@ export function AdminDashboard() {
                             )}
                           </TableCell>
                         </TableRow>
-                      ))}
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -430,21 +463,35 @@ export function AdminDashboard() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {tutees.map((t) => (
+                      {tutees.map((t) => {
+                        const tAny = t as unknown as Record<string, unknown>
+                        const subjects = toSubjectsArray(
+                          tAny.subjects ?? tAny.subjects_needed
+                        )
+                        const availability = toAvailabilityArray(tAny.availability)
+                        const studentName =
+                          tAny.studentFirstName && tAny.studentLastName
+                            ? `${tAny.studentFirstName} ${tAny.studentLastName}`
+                            : (tAny.name as string) ?? ""
+                        const parentName =
+                          tAny.parentFirstName && tAny.parentLastName
+                            ? `${tAny.parentFirstName} ${tAny.parentLastName}`
+                            : (tAny.email as string) ?? ""
+                        return (
                         <TableRow key={t.id}>
                           <TableCell className="font-medium">
-                            {t.studentFirstName} {t.studentLastName}
+                            {studentName}
                           </TableCell>
-                          <TableCell>{t.studentGrade}</TableCell>
+                          <TableCell>{String(tAny.studentGrade ?? tAny.grade_level ?? "")}</TableCell>
                           <TableCell className="text-sm">
-                            {t.parentFirstName} {t.parentLastName}
+                            {parentName}
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline">{t.format}</Badge>
+                            <Badge variant="outline">{(tAny.format as string) ?? ""}</Badge>
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-wrap gap-1">
-                              {t.subjects.slice(0, 3).map((s) => (
+                              {subjects.slice(0, 3).map((s) => (
                                 <Badge
                                   key={s}
                                   variant="secondary"
@@ -453,18 +500,18 @@ export function AdminDashboard() {
                                   {s}
                                 </Badge>
                               ))}
-                              {t.subjects.length > 3 && (
+                              {subjects.length > 3 && (
                                 <Badge
                                   variant="secondary"
                                   className="text-xs"
                                 >
-                                  +{t.subjects.length - 3}
+                                  +{subjects.length - 3}
                                 </Badge>
                               )}
                             </div>
                           </TableCell>
                           <TableCell className="text-sm">
-                            {t.availability.length}
+                            {availability.length}
                           </TableCell>
                           <TableCell>
                             {matchedTuteeIds.has(t.id) ? (
@@ -476,7 +523,8 @@ export function AdminDashboard() {
                             )}
                           </TableCell>
                         </TableRow>
-                      ))}
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </div>
