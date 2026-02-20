@@ -1,7 +1,14 @@
+# v0 runtime files (should only exist in preview, not in git)
+__v0_runtime_loader.js
+__v0_devtools.tsx
+__v0_jsx-dev-runtime.ts
+
+# Common ignores
 node_modules/
-backend/data/
-backend/*.db
-frontend/dist/
-.env
+.next/
+.env*.local
 .DS_Store
-*.db
+
+# Frontend (Next.js)
+frontend/node_modules/
+frontend/.next/

@@ -1,12 +1,12 @@
 {
-  "name": "west-philly-tutoring",
-  "version": "0.1.0",
-  "description": "Tutor–student matching for West Philadelphia Tutoring Project",
+  "name": "wp-tutoring",
   "private": true,
+  "description": "West Philadelphia Tutoring — frontend (Next.js) and backend (Django)",
   "scripts": {
-    "start:backend": "cd backend && python3 manage.py runserver 3001",
-    "start:frontend": "cd frontend && npm run dev",
-    "install:all": "npm run install:frontend && (cd backend && pip install -r requirements.txt)",
-    "install:frontend": "npm install && cd frontend && npm install"
+    "dev": "npm run dev --prefix frontend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "start": "npm run start --prefix frontend",
+    "lint": "npm run lint --prefix frontend"
   }
 }
