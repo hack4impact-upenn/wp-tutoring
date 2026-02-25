@@ -18,3 +18,4 @@ frontend/.next/
 backend/.venv/
 backend/data/
 backend/.env
+__pycache__/
