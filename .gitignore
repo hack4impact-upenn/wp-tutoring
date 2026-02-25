@@ -17,3 +17,4 @@ frontend/.next/
 # Backend (Django)
 backend/.venv/
 backend/data/
+backend/.env
