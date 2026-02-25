@@ -41,6 +41,21 @@ export function apiPlugin(): Plugin {
 
         try {
           // Handle /api/tutors
+          if (path === '/tutors/lookup') {
+            if (req.method === 'GET') {
+              const pennId = url.searchParams.get('pennId') || ''
+              const tutor = getTutors().find(t => t.pennId === pennId)
+              if (tutor) {
+                res.writeHead(200, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify(tutor))
+              } else {
+                res.writeHead(404, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ error: 'Not found' }))
+              }
+              return
+            }
+          }
+
           if (path === '/tutors' || path === '/tutors/') {
             if (req.method === 'GET') {
               res.writeHead(200, { 'Content-Type': 'application/json' })

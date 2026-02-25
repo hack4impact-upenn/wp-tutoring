@@ -1,6 +1,6 @@
 import { MongoClient } from 'mongodb'
 
-const uri = 'INSERT_HERE'
+const uri = process.env.MONGODB_URI || ''
 
 // Reuse the client connection across hot-reloads in development
 declare global {
