@@ -9,6 +9,7 @@ import { StudentDashboard } from "./pages/StudentDashboard";
 import { TutorDashboard } from "./pages/TutorDashboard";
 import { AdminDashboard } from "./pages/AdminDashboard";
 import { TutorApplyPage } from "./pages/TutorApplyPage";
+import { TuteeApplyPage } from "./pages/TuteeApplyPage";
 
 export const router = createBrowserRouter([
   {
@@ -19,6 +20,7 @@ export const router = createBrowserRouter([
       { path: "about", Component: AboutPage },
       { path: "contact", Component: ContactPage },
       { path: "apply/tutor", Component: TutorApplyPage },
+      { path: "apply/tutee", Component: TuteeApplyPage },
       { path: "sign-up", Component: SignUpPage },
       { path: "sign-in", Component: SignInPage },
       { path: "student-dashboard", Component: StudentDashboard },
