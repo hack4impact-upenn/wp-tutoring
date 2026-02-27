@@ -28,18 +28,18 @@ export function Hero() {
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Button
               size="lg"
-              className="bg-white text-primary hover:bg-white/90 px-8 py-6 text-lg"
-              onClick={() => navigate('/sign-up')}
+              className="bg-white text-primary hover:bg-white/90 px-8 py-6 text-lg cursor-pointer"
+              onClick={() => navigate('/apply/tutee')}
             >
-              Sign Up as a Student
+              Apply as Tutee
             </Button>
             <Button
               size="lg"
               variant="outline"
-              className="bg-transparent text-white border-white hover:bg-white hover:text-primary px-8 py-6 text-lg"
-              onClick={() => navigate('/sign-up')}
+              className="bg-transparent text-white border-white hover:bg-white hover:text-primary px-8 py-6 text-lg cursor-pointer"
+              onClick={() => navigate('/apply/tutor')}
             >
-              Sign Up as a Tutor
+              Apply as Tutor
             </Button>
           </div>
         </div>
