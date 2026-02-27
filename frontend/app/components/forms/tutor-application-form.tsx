@@ -17,6 +17,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { AvailabilityPicker } from "@/components/forms/availability-picker"
 import { SUBJECTS } from "@/lib/constants"
 import type { AvailabilitySlot, AgeRange, TutoringFormat, TutorApplication } from "@/lib/types"
+import { createTutor } from "@/lib/actions"
 import { toast } from "sonner"
 import { Loader2 } from "lucide-react"
 
@@ -78,30 +79,24 @@ export function TutorApplicationForm({ initialData }: TutorApplicationFormProps 
 
     setSubmitting(true)
     try {
-      const res = await fetch("/api/tutors", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          firstName,
-          lastName,
-          email,
-          pennId,
-          phone,
-          year,
-          availability,
-          format,
-          subjects,
-          ageRanges,
-          previousTuteeNames,
-          additionalNotes,
-        }),
+      await createTutor({
+        firstName,
+        lastName,
+        email,
+        pennId,
+        phone,
+        year,
+        availability,
+        format,
+        subjects,
+        ageRanges,
+        previousTuteeNames,
+        additionalNotes,
       })
-
-      if (!res.ok) throw new Error("Failed to submit")
-
       toast.success("Application submitted successfully!")
       navigate("/")
-    } catch {
+    } catch (err) {
+      console.error("[TutorForm] Error:", err)
       toast.error("Something went wrong. Please try again.")
     } finally {
       setSubmitting(false)

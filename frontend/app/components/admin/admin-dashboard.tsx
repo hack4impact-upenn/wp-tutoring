@@ -17,38 +17,84 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { getTutors, getTutees } from "@/lib/actions"
 import { toast } from "sonner"
-import type { TutorApplication, TuteeApplication, Match } from "@/lib/types"
 import {
   Users,
   GraduationCap,
   Link2,
   AlertCircle,
-  Shuffle,
-  Trash2,
   Loader2,
   RefreshCw,
 } from "lucide-react"
 
+interface Tutor {
+  _id?: string
+  id?: string
+  firstName?: string
+  lastName?: string
+  email?: string
+  pennId?: string
+  year?: string
+  format?: string
+  subjects?: string[]
+  availability?: { day: string; time: string }[]
+  ageRanges?: string[]
+  phone?: string
+  createdAt?: string
+}
+
+interface Tutee {
+  _id?: string
+  id?: string
+  studentFirstName?: string
+  studentLastName?: string
+  studentGrade?: string
+  studentAge?: number
+  parentFirstName?: string
+  parentLastName?: string
+  parentEmail?: string
+  format?: string
+  subjects?: string[]
+  availability?: { day: string; time: string }[]
+  createdAt?: string
+}
+
+function getId(doc: { _id?: string; id?: string }): string {
+  return doc._id || doc.id || ''
+}
+
+function toArray(val: unknown): string[] {
+  if (Array.isArray(val)) return val
+  if (typeof val === 'string' && val) return val.split(',').map(s => s.trim()).filter(Boolean)
+  return []
+}
+
+function toSlotArray(val: unknown): { day: string; time: string }[] {
+  if (Array.isArray(val)) return val
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val)
+      return Array.isArray(parsed) ? parsed : []
+    } catch { return [] }
+  }
+  return []
+}
+
 export function AdminDashboard() {
-  const [tutors, setTutors] = useState<TutorApplication[]>([])
-  const [tutees, setTutees] = useState<TuteeApplication[]>([])
-  const [matches, setMatches] = useState<Match[]>([])
+  const [tutors, setTutors] = useState<Tutor[]>([])
+  const [tutees, setTutees] = useState<Tutee[]>([])
   const [loading, setLoading] = useState(true)
-  const [matching, setMatching] = useState(false)
-  const [seeding, setSeeding] = useState(false)
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [tutorRes, tuteeRes, matchRes] = await Promise.all([
-        fetch("/api/tutors"),
-        fetch("/api/tutees"),
-        fetch("/api/matches"),
+      const [tutorData, tuteeData] = await Promise.all([
+        getTutors(),
+        getTutees(),
       ])
-      setTutors(await tutorRes.json())
-      setTutees(await tuteeRes.json())
-      setMatches(await matchRes.json())
+      setTutors(Array.isArray(tutorData) ? tutorData : [])
+      setTutees(Array.isArray(tuteeData) ? tuteeData : [])
     } catch {
       toast.error("Failed to load data.")
     } finally {
@@ -60,62 +106,6 @@ export function AdminDashboard() {
     fetchAll()
   }, [fetchAll])
 
-  async function handleSeed() {
-    setSeeding(true)
-    try {
-      await fetch("/api/seed", { method: "POST" })
-      await fetchAll()
-      toast.success("Sample data loaded!")
-    } catch {
-      toast.error("Failed to seed data.")
-    } finally {
-      setSeeding(false)
-    }
-  }
-
-  async function handleAutoMatch() {
-    setMatching(true)
-    try {
-      const res = await fetch("/api/matches", { method: "POST" })
-      const data = await res.json()
-      setMatches(data.allMatches)
-      toast.success(
-        `Matching complete! ${data.newMatches.length} new match(es) created.`
-      )
-    } catch {
-      toast.error("Auto-matching failed.")
-    } finally {
-      setMatching(false)
-    }
-  }
-
-  async function handleDropMatch(matchId: string) {
-    try {
-      const res = await fetch(`/api/matches?id=${matchId}`, {
-        method: "DELETE",
-      })
-      setMatches(await res.json())
-      toast.success("Match dropped.")
-    } catch {
-      toast.error("Failed to drop match.")
-    }
-  }
-
-  async function handleClearAll() {
-    try {
-      const res = await fetch(`/api/matches?id=all`, { method: "DELETE" })
-      setMatches(await res.json())
-      toast.success("All matches cleared.")
-    } catch {
-      toast.error("Failed to clear matches.")
-    }
-  }
-
-  const matchedTutorIds = new Set(matches.map((m) => m.tutor.id))
-  const matchedTuteeIds = new Set(matches.map((m) => m.tutee.id))
-  const unmatchedTutors = tutors.filter((t) => !matchedTutorIds.has(t.id))
-  const unmatchedTutees = tutees.filter((t) => !matchedTuteeIds.has(t.id))
-
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -125,37 +115,20 @@ export function AdminDashboard() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 pt-24 pb-8">
+    <div className="mx-auto max-w-6xl space-y-6 px-4 py-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="font-serif text-3xl font-bold text-foreground">
             Admin Dashboard
           </h1>
           <p className="mt-1 text-muted-foreground">
-            Manage tutor-tutee matching for the current semester.
+            View all tutor and tutee applications.
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={fetchAll}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
-          </Button>
-          {tutors.length === 0 && tutees.length === 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSeed}
-              disabled={seeding}
-            >
-              {seeding ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Users className="mr-2 h-4 w-4" />
-              )}
-              Load Sample Data
-            </Button>
-          )}
-        </div>
+        <Button variant="outline" size="sm" onClick={fetchAll}>
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Refresh
+        </Button>
       </div>
 
       {/* Stats Cards */}
@@ -192,9 +165,7 @@ export function AdminDashboard() {
               <Link2 className="h-5 w-5 text-chart-3" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-foreground">
-                {matches.length}
-              </p>
+              <p className="text-2xl font-bold text-foreground">0</p>
               <p className="text-xs text-muted-foreground">Matches</p>
             </div>
           </CardContent>
@@ -206,7 +177,7 @@ export function AdminDashboard() {
             </div>
             <div>
               <p className="text-2xl font-bold text-foreground">
-                {unmatchedTutees.length}
+                {tutees.length}
               </p>
               <p className="text-xs text-muted-foreground">Unmatched Tutees</p>
             </div>
@@ -214,39 +185,9 @@ export function AdminDashboard() {
         </Card>
       </div>
 
-      {/* Actions */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Matching Actions</CardTitle>
-          <CardDescription>
-            Run the auto-matcher to pair unmatched tutors and tutees. You can
-            drop individual matches and re-run.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-3">
-          <Button onClick={handleAutoMatch} disabled={matching}>
-            {matching ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <Shuffle className="mr-2 h-4 w-4" />
-            )}
-            Run Auto-Match
-          </Button>
-          {matches.length > 0 && (
-            <Button variant="destructive" onClick={handleClearAll}>
-              <Trash2 className="mr-2 h-4 w-4" />
-              Clear All Matches
-            </Button>
-          )}
-        </CardContent>
-      </Card>
-
       {/* Data Tabs */}
-      <Tabs defaultValue="matches">
+      <Tabs defaultValue="tutors">
         <TabsList>
-          <TabsTrigger value="matches">
-            Matches ({matches.length})
-          </TabsTrigger>
           <TabsTrigger value="tutors">
             Tutors ({tutors.length})
           </TabsTrigger>
@@ -255,82 +196,14 @@ export function AdminDashboard() {
           </TabsTrigger>
         </TabsList>
 
-        {/* Matches Tab */}
-        <TabsContent value="matches">
-          <Card>
-            <CardContent className="pt-6">
-              {matches.length === 0 ? (
-                <p className="py-8 text-center text-muted-foreground">
-                  No matches yet. Run the auto-matcher to create pairings.
-                </p>
-              ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Tutor</TableHead>
-                        <TableHead>Tutee</TableHead>
-                        <TableHead>Slot</TableHead>
-                        <TableHead>Score</TableHead>
-                        <TableHead>Reasons</TableHead>
-                        <TableHead className="w-20" />
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {matches.map((m) => (
-                        <TableRow key={m.id}>
-                          <TableCell className="font-medium">
-                            {m.tutor.firstName} {m.tutor.lastName}
-                          </TableCell>
-                          <TableCell>
-                            {m.tutee.studentFirstName}{" "}
-                            {m.tutee.studentLastName}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="secondary">
-                              {m.matchedSlot.day} {m.matchedSlot.time}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="font-mono text-sm">
-                            {m.score}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-wrap gap-1">
-                              {m.reasons.map((r, i) => (
-                                <Badge
-                                  key={i}
-                                  variant="outline"
-                                  className="text-xs"
-                                >
-                                  {r}
-                                </Badge>
-                              ))}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => handleDropMatch(m.id)}
-                              aria-label="Drop match"
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
         {/* Tutors Tab */}
         <TabsContent value="tutors">
           <Card>
-            <CardContent className="pt-6">
+            <CardHeader>
+              <CardTitle>Tutor Applications</CardTitle>
+              <CardDescription>All submitted tutor applications from MongoDB.</CardDescription>
+            </CardHeader>
+            <CardContent>
               {tutors.length === 0 ? (
                 <p className="py-8 text-center text-muted-foreground">
                   No tutor applications yet.
@@ -342,61 +215,42 @@ export function AdminDashboard() {
                       <TableRow>
                         <TableHead>Name</TableHead>
                         <TableHead>Email</TableHead>
+                        <TableHead>Penn ID</TableHead>
                         <TableHead>Year</TableHead>
                         <TableHead>Format</TableHead>
                         <TableHead>Subjects</TableHead>
                         <TableHead>Slots</TableHead>
-                        <TableHead>Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {tutors.map((t) => (
-                        <TableRow key={t.id}>
-                          <TableCell className="font-medium">
-                            {t.firstName} {t.lastName}
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            {t.email}
-                          </TableCell>
-                          <TableCell>{t.year}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{t.format}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-wrap gap-1">
-                              {t.subjects.slice(0, 3).map((s) => (
-                                <Badge
-                                  key={s}
-                                  variant="secondary"
-                                  className="text-xs"
-                                >
-                                  {s}
-                                </Badge>
-                              ))}
-                              {t.subjects.length > 3 && (
-                                <Badge
-                                  variant="secondary"
-                                  className="text-xs"
-                                >
-                                  +{t.subjects.length - 3}
-                                </Badge>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            {t.availability.length}
-                          </TableCell>
-                          <TableCell>
-                            {matchedTutorIds.has(t.id) ? (
-                              <Badge className="bg-chart-3 text-card">
-                                Matched
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline">Pending</Badge>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {tutors.map((t) => {
+                        const subjects = toArray(t.subjects)
+                        const slots = toSlotArray(t.availability)
+                        return (
+                          <TableRow key={getId(t)}>
+                            <TableCell className="font-medium">
+                              {t.firstName} {t.lastName}
+                            </TableCell>
+                            <TableCell className="text-sm">{t.email}</TableCell>
+                            <TableCell className="text-sm font-mono">{t.pennId || '—'}</TableCell>
+                            <TableCell>{t.year}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{t.format}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1">
+                                {subjects.slice(0, 3).map((s) => (
+                                  <Badge key={s} variant="secondary" className="text-xs">{s}</Badge>
+                                ))}
+                                {subjects.length > 3 && (
+                                  <Badge variant="secondary" className="text-xs">+{subjects.length - 3}</Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-sm">{slots.length}</TableCell>
+                          </TableRow>
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -408,7 +262,11 @@ export function AdminDashboard() {
         {/* Tutees Tab */}
         <TabsContent value="tutees">
           <Card>
-            <CardContent className="pt-6">
+            <CardHeader>
+              <CardTitle>Tutee Applications</CardTitle>
+              <CardDescription>All submitted tutee applications from MongoDB.</CardDescription>
+            </CardHeader>
+            <CardContent>
               {tutees.length === 0 ? (
                 <p className="py-8 text-center text-muted-foreground">
                   No tutee applications yet.
@@ -421,60 +279,43 @@ export function AdminDashboard() {
                         <TableHead>Student</TableHead>
                         <TableHead>Grade</TableHead>
                         <TableHead>Parent</TableHead>
+                        <TableHead>Parent Email</TableHead>
                         <TableHead>Format</TableHead>
                         <TableHead>Subjects</TableHead>
                         <TableHead>Slots</TableHead>
-                        <TableHead>Status</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {tutees.map((t) => (
-                        <TableRow key={t.id}>
-                          <TableCell className="font-medium">
-                            {t.studentFirstName} {t.studentLastName}
-                          </TableCell>
-                          <TableCell>{t.studentGrade}</TableCell>
-                          <TableCell className="text-sm">
-                            {t.parentFirstName} {t.parentLastName}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{t.format}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-wrap gap-1">
-                              {t.subjects.slice(0, 3).map((s) => (
-                                <Badge
-                                  key={s}
-                                  variant="secondary"
-                                  className="text-xs"
-                                >
-                                  {s}
-                                </Badge>
-                              ))}
-                              {t.subjects.length > 3 && (
-                                <Badge
-                                  variant="secondary"
-                                  className="text-xs"
-                                >
-                                  +{t.subjects.length - 3}
-                                </Badge>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            {t.availability.length}
-                          </TableCell>
-                          <TableCell>
-                            {matchedTuteeIds.has(t.id) ? (
-                              <Badge className="bg-chart-3 text-card">
-                                Matched
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline">Pending</Badge>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      ))}
+                      {tutees.map((t) => {
+                        const subjects = toArray(t.subjects)
+                        const slots = toSlotArray(t.availability)
+                        return (
+                          <TableRow key={getId(t)}>
+                            <TableCell className="font-medium">
+                              {t.studentFirstName} {t.studentLastName}
+                            </TableCell>
+                            <TableCell>{t.studentGrade}</TableCell>
+                            <TableCell className="text-sm">
+                              {t.parentFirstName} {t.parentLastName}
+                            </TableCell>
+                            <TableCell className="text-sm">{t.parentEmail}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline">{t.format}</Badge>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1">
+                                {subjects.slice(0, 3).map((s) => (
+                                  <Badge key={s} variant="secondary" className="text-xs">{s}</Badge>
+                                ))}
+                                {subjects.length > 3 && (
+                                  <Badge variant="secondary" className="text-xs">+{subjects.length - 3}</Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-sm">{slots.length}</TableCell>
+                          </TableRow>
+                        )
+                      })}
                     </TableBody>
                   </Table>
                 </div>

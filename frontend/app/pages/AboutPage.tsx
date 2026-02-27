@@ -1,8 +1,8 @@
 export function AboutPage() {
   return (
-    <div className="pt-20">
+    <div>
       {/* General About Us Section */}
-      <section className="py-20 lg:py-32 bg-background">
+      <section className="py-12 lg:py-20 bg-background">
         <div className="container mx-auto px-4 lg:px-8">
           <div className="max-w-4xl mx-auto">
             <h1 className="text-4xl lg:text-5xl font-bold text-primary mb-8">

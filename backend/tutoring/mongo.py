@@ -1,4 +1,5 @@
 import os
+import certifi
 from pymongo import MongoClient
 from dotenv import load_dotenv
 from pathlib import Path
@@ -13,5 +14,5 @@ def get_db(db_name='Users'):
         uri = os.environ.get('MONGODB_URI', '')
         if not uri:
             raise RuntimeError('MONGODB_URI is not set')
-        _client = MongoClient(uri)
+        _client = MongoClient(uri, tlsCAFile=certifi.where())
     return _client[db_name]
