@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Loader2, Search, UserPlus } from "lucide-react"
 import { TutorApplicationForm } from "../components/forms/tutor-application-form"
+import { lookupTutorByPennId } from "@/lib/actions"
 import type { TutorApplication } from "@/lib/types"
 
 export function TutorApplyPage() {
@@ -19,10 +20,9 @@ export function TutorApplyPage() {
 
     setLooking(true)
     try {
-      const res = await fetch(`/api/tutors/lookup?pennId=${encodeURIComponent(pennId.trim())}`)
-      if (res.ok) {
-        const data: TutorApplication = await res.json()
-        setExistingData(data)
+      const existing = await lookupTutorByPennId(pennId.trim())
+      if (existing) {
+        setExistingData(existing)
       } else {
         setExistingData({ pennId: pennId.trim() })
       }

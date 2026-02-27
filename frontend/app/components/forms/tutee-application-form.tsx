@@ -28,6 +28,7 @@ import type {
   GenderPreference,
   SiblingPreference,
 } from "@/lib/types"
+import { createTutee } from "@/lib/actions"
 import { toast } from "sonner"
 import { Loader2 } from "lucide-react"
 
@@ -90,34 +91,28 @@ export function TuteeApplicationForm() {
 
     setSubmitting(true)
     try {
-      const res = await fetch("/api/tutees", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          studentFirstName,
-          studentLastName,
-          studentAge: studentAge ? parseInt(studentAge) : 0,
-          studentGrade,
-          parentFirstName,
-          parentLastName,
-          parentEmail,
-          parentPhone,
-          availability,
-          format,
-          subjects,
-          genderPreference,
-          siblingNames,
-          siblingPreference,
-          previousTutorNames,
-          additionalNotes,
-        }),
+      await createTutee({
+        studentFirstName,
+        studentLastName,
+        studentAge: studentAge ? parseInt(studentAge) : 0,
+        studentGrade,
+        parentFirstName,
+        parentLastName,
+        parentEmail,
+        parentPhone,
+        availability,
+        format,
+        subjects,
+        genderPreference,
+        siblingNames,
+        siblingPreference,
+        previousTutorNames,
+        additionalNotes,
       })
-
-      if (!res.ok) throw new Error("Failed to submit")
-
       toast.success("Application submitted successfully!")
       navigate("/")
-    } catch {
+    } catch (err) {
+      console.error("[TuteeForm] Error:", err)
       toast.error("Something went wrong. Please try again.")
     } finally {
       setSubmitting(false)

@@ -35,13 +35,18 @@ export function apiPlugin(): Plugin {
             ? await readBody(req)
             : undefined
 
+          console.log(`[api-plugin] ${req.method} ${backendPath}`)
+          if (body) console.log(`[api-plugin] Body: ${body.substring(0, 200)}`)
+
           const backendRes = await fetch(backendPath, {
             method: req.method || 'GET',
             headers: { 'Content-Type': 'application/json' },
             body,
+            signal: AbortSignal.timeout(10000),
           })
 
           const data = await backendRes.text()
+          console.log(`[api-plugin] Response: ${backendRes.status} ${data.substring(0, 200)}`)
           res.writeHead(backendRes.status, { 'Content-Type': 'application/json' })
           res.end(data)
         } catch (error: any) {

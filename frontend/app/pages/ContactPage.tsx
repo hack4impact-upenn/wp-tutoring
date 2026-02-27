@@ -2,8 +2,8 @@ import { Mail, Instagram, Facebook, MapPin } from 'lucide-react';
 
 export function ContactPage() {
   return (
-    <div className="pt-20 min-h-screen">
-      <section className="py-20 lg:py-32 bg-background">
+    <div className="min-h-screen">
+      <section className="py-12 lg:py-20 bg-background">
         <div className="container mx-auto px-4 lg:px-8">
           <div className="max-w-3xl mx-auto">
             <h1 className="text-4xl lg:text-5xl font-bold text-primary mb-16 text-center">

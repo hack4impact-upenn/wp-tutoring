@@ -32,7 +32,8 @@ export interface AvailabilitySlot {
 }
 
 export interface TutorApplication {
-  id: string
+  _id?: string
+  id?: string
   firstName: string
   lastName: string
   email: string
@@ -49,7 +50,8 @@ export interface TutorApplication {
 }
 
 export interface TuteeApplication {
-  id: string
+  _id?: string
+  id?: string
   studentFirstName: string
   studentLastName: string
   studentAge: number
