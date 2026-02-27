@@ -16,29 +16,33 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { AvailabilityPicker } from "@/components/forms/availability-picker"
 import { SUBJECTS } from "@/lib/constants"
-import type { AvailabilitySlot, AgeRange, TutoringFormat } from "@/lib/types"
+import type { AvailabilitySlot, AgeRange, TutoringFormat, TutorApplication } from "@/lib/types"
 import { toast } from "sonner"
 import { Loader2 } from "lucide-react"
 
 const AGE_RANGES: AgeRange[] = ["K-3", "4-8", "9-12"]
 const YEARS = ["Freshman", "Sophomore", "Junior", "Senior", "Graduate"]
 
-export function TutorApplicationForm() {
+interface TutorApplicationFormProps {
+  initialData?: Partial<TutorApplication>
+}
+
+export function TutorApplicationForm({ initialData }: TutorApplicationFormProps = {}) {
   const navigate = useNavigate()
   const [submitting, setSubmitting] = useState(false)
 
-  const [firstName, setFirstName] = useState("")
-  const [lastName, setLastName] = useState("")
-  const [email, setEmail] = useState("")
-  const [pennId, setPennId] = useState("")
-  const [phone, setPhone] = useState("")
-  const [year, setYear] = useState("")
-  const [availability, setAvailability] = useState<AvailabilitySlot[]>([])
-  const [format, setFormat] = useState<TutoringFormat>("Either")
-  const [subjects, setSubjects] = useState<string[]>([])
-  const [ageRanges, setAgeRanges] = useState<AgeRange[]>([])
-  const [previousTuteeNames, setPreviousTuteeNames] = useState("")
-  const [additionalNotes, setAdditionalNotes] = useState("")
+  const [firstName, setFirstName] = useState(initialData?.firstName ?? "")
+  const [lastName, setLastName] = useState(initialData?.lastName ?? "")
+  const [email, setEmail] = useState(initialData?.email ?? "")
+  const [pennId, setPennId] = useState(initialData?.pennId ?? "")
+  const [phone, setPhone] = useState(initialData?.phone ?? "")
+  const [year, setYear] = useState(initialData?.year ?? "")
+  const [availability, setAvailability] = useState<AvailabilitySlot[]>(initialData?.availability ?? [])
+  const [format, setFormat] = useState<TutoringFormat>(initialData?.format ?? "Either")
+  const [subjects, setSubjects] = useState<string[]>(initialData?.subjects ?? [])
+  const [ageRanges, setAgeRanges] = useState<AgeRange[]>(initialData?.ageRanges ?? [])
+  const [previousTuteeNames, setPreviousTuteeNames] = useState(initialData?.previousTuteeNames ?? "")
+  const [additionalNotes, setAdditionalNotes] = useState(initialData?.additionalNotes ?? "")
 
   const toggleSubject = (s: string) => {
     setSubjects((prev) =>

@@ -7,6 +7,7 @@ __v0_jsx-dev-runtime.ts
 node_modules/
 .next/
 .env*.local
+.env
 .DS_Store
 
 # Frontend (Next.js)
@@ -16,3 +17,5 @@ frontend/.next/
 # Backend (Django)
 backend/.venv/
 backend/data/
+backend/.env
+__pycache__/

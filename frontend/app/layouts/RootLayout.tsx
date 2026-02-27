@@ -23,7 +23,9 @@ export function RootLayout() {
   return (
     <div className="min-h-screen bg-background">
       <Navigation scrolled={scrolled} />
-      <Outlet />
+      <div className="pt-20">
+        <Outlet />
+      </div>
       <Footer />
     </div>
   );

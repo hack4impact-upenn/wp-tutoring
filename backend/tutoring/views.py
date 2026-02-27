@@ -1,51 +1,33 @@
 import json
+from datetime import datetime
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-
-from .models import Tutor, Student, Section, Assignment, LastSemesterPair
+from .mongo import get_db
+from .models import Section, Assignment, LastSemesterPair
 from .matching import run_matching, SUBJECTS
 
 
 def current_semester():
-    from datetime import datetime
     d = datetime.now()
     return f"{d.year}-S{'2' if d.month >= 6 else '1'}"
 
 
-def _tutor_dict(t):
-    return {
-        'id': t.id,
-        'name': t.name,
-        'email': t.email,
-        'phone': t.phone or '',
-        'availability': t.availability or '',
-        'subjects': t.subjects or '',
-        'grade_levels': t.grade_levels or '',
-        'previous_student_ids': t.previous_student_ids or '',
-        'preferences': t.preferences or '',
-    }
+def _serialize(doc):
+    """Convert a MongoDB document to JSON-safe dict."""
+    if doc is None:
+        return None
+    doc['_id'] = str(doc['_id'])
+    return doc
 
 
-def _student_dict(s):
-    return {
-        'id': s.id,
-        'name': s.name,
-        'email': s.email,
-        'phone': s.phone or '',
-        'grade_level': s.grade_level,
-        'subjects_needed': s.subjects_needed or '',
-        'sibling_ids': s.sibling_ids or '',
-        'previous_tutor_id': s.previous_tutor_id,
-        'availability': s.availability or '',
-        'constraints': s.constraints or '',
-    }
-
+# --------------- Tutors (MongoDB) ---------------
 
 @csrf_exempt
 def api_tutors(request):
     if request.method == 'GET':
-        tutors = [_tutor_dict(t) for t in Tutor.objects.all()]
+        db = get_db()
+        tutors = [_serialize(t) for t in db.Tutors.find()]
         return JsonResponse(tutors, safe=False)
     if request.method != 'POST':
         return JsonResponse({}, status=405)
@@ -58,96 +40,130 @@ def _api_tutors_create(request):
         body = json.loads(request.body) if request.body else {}
     except json.JSONDecodeError:
         body = {}
-    name = (body.get('name') or '').strip()
+
+    first = (body.get('firstName') or '').strip()
+    last = (body.get('lastName') or '').strip()
     email = (body.get('email') or '').strip()
-    if not name or not email:
-        return JsonResponse({'error': 'Name and email required'}, status=400)
-    subjects = body.get('subjects')
-    if isinstance(subjects, list):
-        subjects = ', '.join(str(s) for s in subjects)
-    else:
-        subjects = subjects or ''
-    grade_levels = body.get('grade_levels')
-    if isinstance(grade_levels, list):
-        grade_levels = ', '.join(str(g) for g in grade_levels)
-    else:
-        grade_levels = grade_levels or ''
-    prev_ids = body.get('previous_student_ids')
-    if isinstance(prev_ids, list):
-        prev_ids = ','.join(str(p) for p in prev_ids)
-    else:
-        prev_ids = prev_ids or ''
-    t = Tutor.objects.create(
-        name=name,
-        email=email,
-        phone=(body.get('phone') or '')[:64],
-        availability=body.get('availability') or '',
-        subjects=subjects,
-        grade_levels=grade_levels,
-        previous_student_ids=prev_ids,
-        preferences=body.get('preferences') or '',
-    )
-    return JsonResponse({'id': t.id, 'message': 'Tutor application submitted.'})
+    if not first or not last or not email:
+        return JsonResponse({'error': 'firstName, lastName, and email are required'}, status=400)
+
+    doc = {
+        'firstName': first,
+        'lastName': last,
+        'email': email,
+        'pennId': (body.get('pennId') or '').strip(),
+        'phone': (body.get('phone') or '').strip(),
+        'year': body.get('year') or '',
+        'availability': body.get('availability') or [],
+        'format': body.get('format') or 'Either',
+        'subjects': body.get('subjects') or [],
+        'ageRanges': body.get('ageRanges') or [],
+        'previousTuteeNames': body.get('previousTuteeNames') or '',
+        'additionalNotes': body.get('additionalNotes') or '',
+        'createdAt': datetime.utcnow().isoformat(),
+    }
+
+    db = get_db()
+    penn_id = doc['pennId']
+    if penn_id:
+        existing = db.Tutors.find_one({'pennId': penn_id})
+        if existing:
+            db.Tutors.replace_one({'_id': existing['_id']}, doc)
+            doc['_id'] = str(existing['_id'])
+            return JsonResponse(doc)
+
+    result = db.Tutors.insert_one(doc)
+    doc['_id'] = str(result.inserted_id)
+    return JsonResponse(doc, status=201)
 
 
 @csrf_exempt
-def api_students(request):
+def api_tutors_lookup(request):
+    if request.method != 'GET':
+        return JsonResponse({}, status=405)
+    penn_id = request.GET.get('pennId', '').strip()
+    if not penn_id:
+        return JsonResponse({'error': 'pennId query parameter required'}, status=400)
+    db = get_db()
+    tutor = db.Tutors.find_one({'pennId': penn_id})
+    if tutor:
+        return JsonResponse(_serialize(tutor))
+    return JsonResponse({'error': 'Not found'}, status=404)
+
+
+# --------------- Tutees (MongoDB) ---------------
+
+@csrf_exempt
+def api_tutees(request):
     if request.method == 'GET':
-        students = [_student_dict(s) for s in Student.objects.all()]
-        return JsonResponse(students, safe=False)
+        db = get_db()
+        tutees = [_serialize(t) for t in db.Tutees.find()]
+        return JsonResponse(tutees, safe=False)
     if request.method != 'POST':
         return JsonResponse({}, status=405)
-    return _api_students_create(request)
+    return _api_tutees_create(request)
 
 
 @csrf_exempt
-def _api_students_create(request):
+def _api_tutees_create(request):
     try:
         body = json.loads(request.body) if request.body else {}
     except json.JSONDecodeError:
         body = {}
-    name = (body.get('name') or '').strip()
-    email = (body.get('email') or '').strip()
-    if not name or not email:
-        return JsonResponse({'error': 'Name and email required'}, status=400)
-    grade_level = body.get('grade_level')
-    if grade_level is not None and grade_level != '':
-        try:
-            grade_level = int(grade_level)
-        except (TypeError, ValueError):
-            grade_level = None
-    else:
-        grade_level = None
-    subjects_needed = body.get('subjects_needed')
-    if isinstance(subjects_needed, list):
-        subjects_needed = ', '.join(str(s) for s in subjects_needed)
-    else:
-        subjects_needed = subjects_needed or ''
-    sibling_ids = body.get('sibling_ids')
-    if isinstance(sibling_ids, list):
-        sibling_ids = ','.join(str(x) for x in sibling_ids)
-    else:
-        sibling_ids = sibling_ids or ''
-    prev_tutor = body.get('previous_tutor_id')
-    if prev_tutor is not None and prev_tutor != '':
-        try:
-            prev_tutor = int(prev_tutor)
-        except (TypeError, ValueError):
-            prev_tutor = None
-    else:
-        prev_tutor = None
-    s = Student.objects.create(
-        name=name,
-        email=email,
-        phone=(body.get('phone') or '')[:64],
-        grade_level=grade_level,
-        subjects_needed=subjects_needed,
-        sibling_ids=sibling_ids,
-        previous_tutor_id=prev_tutor,
-        availability=body.get('availability') or '',
-        constraints=body.get('constraints') or '',
-    )
-    return JsonResponse({'id': s.id, 'message': 'Student application submitted.'})
+
+    s_first = (body.get('studentFirstName') or '').strip()
+    s_last = (body.get('studentLastName') or '').strip()
+    p_email = (body.get('parentEmail') or '').strip()
+    if not s_first or not s_last or not p_email:
+        return JsonResponse({'error': 'studentFirstName, studentLastName, and parentEmail are required'}, status=400)
+
+    doc = {
+        'studentFirstName': s_first,
+        'studentLastName': s_last,
+        'studentAge': body.get('studentAge') or 0,
+        'studentGrade': body.get('studentGrade') or '',
+        'parentFirstName': (body.get('parentFirstName') or '').strip(),
+        'parentLastName': (body.get('parentLastName') or '').strip(),
+        'parentEmail': p_email,
+        'parentPhone': (body.get('parentPhone') or '').strip(),
+        'availability': body.get('availability') or [],
+        'format': body.get('format') or 'Either',
+        'subjects': body.get('subjects') or [],
+        'genderPreference': body.get('genderPreference') or 'No Preference',
+        'siblingNames': body.get('siblingNames') or '',
+        'siblingPreference': body.get('siblingPreference') or 'No Preference',
+        'previousTutorNames': body.get('previousTutorNames') or '',
+        'additionalNotes': body.get('additionalNotes') or '',
+        'createdAt': datetime.utcnow().isoformat(),
+    }
+
+    db = get_db()
+    result = db.Tutees.insert_one(doc)
+    doc['_id'] = str(result.inserted_id)
+    return JsonResponse(doc, status=201)
+
+
+# --------------- Legacy endpoints (Django ORM / SQLite) ---------------
+
+def _tutor_dict_legacy(t):
+    return {
+        'id': t.id, 'name': t.name, 'email': t.email,
+        'phone': t.phone or '', 'availability': t.availability or '',
+        'subjects': t.subjects or '', 'grade_levels': t.grade_levels or '',
+        'previous_student_ids': t.previous_student_ids or '',
+        'preferences': t.preferences or '',
+    }
+
+def _student_dict_legacy(s):
+    return {
+        'id': s.id, 'name': s.name, 'email': s.email,
+        'phone': s.phone or '', 'grade_level': s.grade_level,
+        'subjects_needed': s.subjects_needed or '',
+        'sibling_ids': s.sibling_ids or '',
+        'previous_tutor_id': s.previous_tutor_id,
+        'availability': s.availability or '',
+        'constraints': s.constraints or '',
+    }
 
 
 @require_http_methods(['GET'])
@@ -158,21 +174,17 @@ def api_sections_list(request):
 
 @require_http_methods(['GET'])
 def api_assignments_list(request):
+    from .models import Tutor, Student
     semester = request.GET.get('semester') or current_semester()
     assignments = Assignment.objects.filter(semester=semester).select_related('tutor', 'student').order_by('section_id', 'tutor_id')
     out = []
     for a in assignments:
         out.append({
-            'id': a.id,
-            'tutor_id': a.tutor_id,
-            'student_id': a.student_id,
-            'section_id': a.section_id,
-            'semester': a.semester,
+            'id': a.id, 'tutor_id': a.tutor_id, 'student_id': a.student_id,
+            'section_id': a.section_id, 'semester': a.semester,
             'manual_override': bool(a.manual_override),
-            'tutor_name': a.tutor.name,
-            'tutor_email': a.tutor.email,
-            'student_name': a.student.name,
-            'student_email': a.student.email,
+            'tutor_name': a.tutor.name, 'tutor_email': a.tutor.email,
+            'student_name': a.student.name, 'student_email': a.student.email,
         })
     return JsonResponse(out, safe=False)
 
@@ -194,34 +206,26 @@ def api_sections_create(request):
 @csrf_exempt
 @require_http_methods(['POST'])
 def api_run_matching(request):
+    from .models import Tutor, Student
     try:
         body = json.loads(request.body) if request.body else {}
     except json.JSONDecodeError:
         body = {}
     semester = body.get('semester') or current_semester()
-
-    tutors = [_tutor_dict(t) for t in Tutor.objects.all()]
-    students = [_student_dict(s) for s in Student.objects.all()]
+    tutors = [_tutor_dict_legacy(t) for t in Tutor.objects.all()]
+    students = [_student_dict_legacy(s) for s in Student.objects.all()]
     sections = [{'id': s.id, 'name': s.name, 'time_block': s.time_block or ''} for s in Section.objects.all()]
-
     if not sections:
         sec = Section.objects.create(name='Section A', time_block='TBD')
         sections = [{'id': sec.id, 'name': sec.name, 'time_block': sec.time_block or ''}]
-
     last_pairs = [{'tutor_id': p.tutor_id, 'student_id': p.student_id} for p in LastSemesterPair.objects.all()]
-
     result = run_matching(tutors=tutors, students=students, sections=sections, last_semester_pairs=last_pairs)
-
     Assignment.objects.filter(semester=semester).delete()
     for a in result['assignments']:
         Assignment.objects.create(
-            tutor_id=a['tutor_id'],
-            student_id=a['student_id'],
-            section_id=a.get('section_id'),
-            semester=semester,
-            manual_override=False,
+            tutor_id=a['tutor_id'], student_id=a['student_id'],
+            section_id=a.get('section_id'), semester=semester, manual_override=False,
         )
-
     return JsonResponse({
         'semester': semester,
         'assignmentsCount': len(result['assignments']),
@@ -246,11 +250,9 @@ def api_assignments_override(request):
         return JsonResponse({'error': 'tutor_id and student_id required'}, status=400)
     Assignment.objects.filter(student_id=student_id, semester=semester).delete()
     Assignment.objects.create(
-        tutor_id=int(tutor_id),
-        student_id=int(student_id),
+        tutor_id=int(tutor_id), student_id=int(student_id),
         section_id=int(section_id) if section_id else None,
-        semester=semester,
-        manual_override=True,
+        semester=semester, manual_override=True,
     )
     return JsonResponse({'ok': True})
 
