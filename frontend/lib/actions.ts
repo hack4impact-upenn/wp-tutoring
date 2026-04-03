@@ -31,7 +31,7 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => null)
-    const message = errorData?.error || `API request failed: ${response.status}`
+    const message = errorData?.detail || errorData?.error || `API request failed: ${response.status}`
     throw new APIError(message, response.status)
   }
 
@@ -85,6 +85,29 @@ export async function lookupTutorByPennId(pennId: string): Promise<TutorApplicat
 
 export async function getTutees(): Promise<TuteeApplication[]> {
   return apiFetch<TuteeApplication[]>("/api/tutees")
+}
+
+// ------------------------------------------------------------
+// Admin Auth
+// ------------------------------------------------------------
+
+export async function adminLogin(email: string, password: string): Promise<{
+  ok: boolean
+  token: string
+  admin: { _id: string; name: string; email: string; role: string }
+}> {
+  return apiFetch("/api/admin/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  })
+}
+
+export async function adminMe(token: string): Promise<{
+  _id: string; name: string; email: string; role: string
+}> {
+  return apiFetch("/api/admin/me", {
+    headers: { Authorization: `Bearer ${token}` },
+  })
 }
 
 export async function createTutee(payload: {

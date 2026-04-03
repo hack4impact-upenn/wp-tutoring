@@ -26,65 +26,53 @@ import {
   AlertCircle,
   Loader2,
   RefreshCw,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react"
+import type { Tutor, Tutee } from "./types"
+import { getId, toArray, toSlotArray } from "./types"
+import {
+  ExportDropdown,
+  exportTutorsCsv,
+  exportTutorsXls,
+  exportTuteesCsv,
+  exportTuteesXls,
+} from "./export"
 
-interface Tutor {
-  _id?: string
-  id?: string
-  firstName?: string
-  lastName?: string
-  email?: string
-  pennId?: string
-  year?: string
-  format?: string
-  subjects?: string[]
-  availability?: { day: string; time: string }[]
-  ageRanges?: string[]
-  phone?: string
-  createdAt?: string
-}
+const PAGE_SIZE = 15
 
-interface Tutee {
-  _id?: string
-  id?: string
-  studentFirstName?: string
-  studentLastName?: string
-  studentGrade?: string
-  studentAge?: number
-  parentFirstName?: string
-  parentLastName?: string
-  parentEmail?: string
-  format?: string
-  subjects?: string[]
-  availability?: { day: string; time: string }[]
-  createdAt?: string
-}
-
-function getId(doc: { _id?: string; id?: string }): string {
-  return doc._id || doc.id || ''
-}
-
-function toArray(val: unknown): string[] {
-  if (Array.isArray(val)) return val
-  if (typeof val === 'string' && val) return val.split(',').map(s => s.trim()).filter(Boolean)
-  return []
-}
-
-function toSlotArray(val: unknown): { day: string; time: string }[] {
-  if (Array.isArray(val)) return val
-  if (typeof val === 'string') {
-    try {
-      const parsed = JSON.parse(val)
-      return Array.isArray(parsed) ? parsed : []
-    } catch { return [] }
-  }
-  return []
+function PaginationControls({ page, totalPages, onPrev, onNext }: {
+  page: number
+  totalPages: number
+  onPrev: () => void
+  onNext: () => void
+}) {
+  if (totalPages <= 1) return null
+  return (
+    <div className="flex items-center justify-between border-t pt-4">
+      <p className="text-sm text-muted-foreground">
+        Page {page} of {totalPages}
+      </p>
+      <div className="flex gap-2">
+        <Button variant="outline" size="sm" onClick={onPrev} disabled={page <= 1}>
+          <ChevronLeft className="mr-1 h-4 w-4" />
+          Previous
+        </Button>
+        <Button variant="outline" size="sm" onClick={onNext} disabled={page >= totalPages}>
+          Next
+          <ChevronRight className="ml-1 h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 export function AdminDashboard() {
   const [tutors, setTutors] = useState<Tutor[]>([])
   const [tutees, setTutees] = useState<Tutee[]>([])
   const [loading, setLoading] = useState(true)
+  const [tutorPage, setTutorPage] = useState(1)
+  const [tuteePage, setTuteePage] = useState(1)
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -95,6 +83,8 @@ export function AdminDashboard() {
       ])
       setTutors(Array.isArray(tutorData) ? tutorData : [])
       setTutees(Array.isArray(tuteeData) ? tuteeData : [])
+      setTutorPage(1)
+      setTuteePage(1)
     } catch {
       toast.error("Failed to load data.")
     } finally {
@@ -105,6 +95,11 @@ export function AdminDashboard() {
   useEffect(() => {
     fetchAll()
   }, [fetchAll])
+
+  const tutorTotalPages = Math.max(1, Math.ceil(tutors.length / PAGE_SIZE))
+  const tuteeTotalPages = Math.max(1, Math.ceil(tutees.length / PAGE_SIZE))
+  const pagedTutors = tutors.slice((tutorPage - 1) * PAGE_SIZE, tutorPage * PAGE_SIZE)
+  const pagedTutees = tutees.slice((tuteePage - 1) * PAGE_SIZE, tuteePage * PAGE_SIZE)
 
   if (loading) {
     return (
@@ -139,9 +134,7 @@ export function AdminDashboard() {
               <Users className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-foreground">
-                {tutors.length}
-              </p>
+              <p className="text-2xl font-bold text-foreground">{tutors.length}</p>
               <p className="text-xs text-muted-foreground">Total Tutors</p>
             </div>
           </CardContent>
@@ -152,9 +145,7 @@ export function AdminDashboard() {
               <GraduationCap className="h-5 w-5 text-accent" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-foreground">
-                {tutees.length}
-              </p>
+              <p className="text-2xl font-bold text-foreground">{tutees.length}</p>
               <p className="text-xs text-muted-foreground">Total Tutees</p>
             </div>
           </CardContent>
@@ -176,9 +167,7 @@ export function AdminDashboard() {
               <AlertCircle className="h-5 w-5 text-destructive" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-foreground">
-                {tutees.length}
-              </p>
+              <p className="text-2xl font-bold text-foreground">{tutees.length}</p>
               <p className="text-xs text-muted-foreground">Unmatched Tutees</p>
             </div>
           </CardContent>
@@ -186,74 +175,81 @@ export function AdminDashboard() {
       </div>
 
       {/* Data Tabs */}
-      <Tabs defaultValue="tutors">
+      <Tabs defaultValue="tutors" onValueChange={() => { setTutorPage(1); setTuteePage(1) }}>
         <TabsList>
-          <TabsTrigger value="tutors">
-            Tutors ({tutors.length})
-          </TabsTrigger>
-          <TabsTrigger value="tutees">
-            Tutees ({tutees.length})
-          </TabsTrigger>
+          <TabsTrigger value="tutors">Tutors ({tutors.length})</TabsTrigger>
+          <TabsTrigger value="tutees">Tutees ({tutees.length})</TabsTrigger>
         </TabsList>
 
         {/* Tutors Tab */}
         <TabsContent value="tutors">
           <Card>
-            <CardHeader>
-              <CardTitle>Tutor Applications</CardTitle>
-              <CardDescription>All submitted tutor applications from MongoDB.</CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Tutor Applications</CardTitle>
+                <CardDescription>All submitted tutor applications from MongoDB.</CardDescription>
+              </div>
+              {tutors.length > 0 && (
+                <ExportDropdown
+                  label="Export Tutors"
+                  onCsv={() => exportTutorsCsv(tutors)}
+                  onXls={() => exportTutorsXls(tutors)}
+                />
+              )}
             </CardHeader>
             <CardContent>
               {tutors.length === 0 ? (
-                <p className="py-8 text-center text-muted-foreground">
-                  No tutor applications yet.
-                </p>
+                <p className="py-8 text-center text-muted-foreground">No tutor applications yet.</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Penn ID</TableHead>
-                        <TableHead>Year</TableHead>
-                        <TableHead>Format</TableHead>
-                        <TableHead>Subjects</TableHead>
-                        <TableHead>Slots</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {tutors.map((t) => {
-                        const subjects = toArray(t.subjects)
-                        const slots = toSlotArray(t.availability)
-                        return (
-                          <TableRow key={getId(t)}>
-                            <TableCell className="font-medium">
-                              {t.firstName} {t.lastName}
-                            </TableCell>
-                            <TableCell className="text-sm">{t.email}</TableCell>
-                            <TableCell className="text-sm font-mono">{t.pennId || '—'}</TableCell>
-                            <TableCell>{t.year}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline">{t.format}</Badge>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex flex-wrap gap-1">
-                                {subjects.slice(0, 3).map((s) => (
-                                  <Badge key={s} variant="secondary" className="text-xs">{s}</Badge>
-                                ))}
-                                {subjects.length > 3 && (
-                                  <Badge variant="secondary" className="text-xs">+{subjects.length - 3}</Badge>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-sm">{slots.length}</TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
+                <>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Penn ID</TableHead>
+                          <TableHead>Year</TableHead>
+                          <TableHead>Format</TableHead>
+                          <TableHead>Subjects</TableHead>
+                          <TableHead>Slots</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pagedTutors.map((t) => {
+                          const subjects = toArray(t.subjects)
+                          const slots = toSlotArray(t.availability)
+                          return (
+                            <TableRow key={getId(t)}>
+                              <TableCell className="font-medium">{t.firstName} {t.lastName}</TableCell>
+                              <TableCell className="text-sm">{t.email}</TableCell>
+                              <TableCell className="text-sm font-mono">{t.pennId || "—"}</TableCell>
+                              <TableCell>{t.year}</TableCell>
+                              <TableCell><Badge variant="outline">{t.format}</Badge></TableCell>
+                              <TableCell>
+                                <div className="flex flex-wrap gap-1">
+                                  {subjects.slice(0, 3).map((s) => (
+                                    <Badge key={s} variant="secondary" className="text-xs">{s}</Badge>
+                                  ))}
+                                  {subjects.length > 3 && (
+                                    <Badge variant="secondary" className="text-xs">+{subjects.length - 3}</Badge>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-sm">{slots.length}</TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <PaginationControls
+                    page={tutorPage}
+                    totalPages={tutorTotalPages}
+                    onPrev={() => setTutorPage((p) => Math.max(1, p - 1))}
+                    onNext={() => setTutorPage((p) => Math.min(tutorTotalPages, p + 1))}
+                  />
+                </>
               )}
             </CardContent>
           </Card>
@@ -262,63 +258,72 @@ export function AdminDashboard() {
         {/* Tutees Tab */}
         <TabsContent value="tutees">
           <Card>
-            <CardHeader>
-              <CardTitle>Tutee Applications</CardTitle>
-              <CardDescription>All submitted tutee applications from MongoDB.</CardDescription>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Tutee Applications</CardTitle>
+                <CardDescription>All submitted tutee applications from MongoDB.</CardDescription>
+              </div>
+              {tutees.length > 0 && (
+                <ExportDropdown
+                  label="Export Tutees"
+                  onCsv={() => exportTuteesCsv(tutees)}
+                  onXls={() => exportTuteesXls(tutees)}
+                />
+              )}
             </CardHeader>
             <CardContent>
               {tutees.length === 0 ? (
-                <p className="py-8 text-center text-muted-foreground">
-                  No tutee applications yet.
-                </p>
+                <p className="py-8 text-center text-muted-foreground">No tutee applications yet.</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Student</TableHead>
-                        <TableHead>Grade</TableHead>
-                        <TableHead>Parent</TableHead>
-                        <TableHead>Parent Email</TableHead>
-                        <TableHead>Format</TableHead>
-                        <TableHead>Subjects</TableHead>
-                        <TableHead>Slots</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {tutees.map((t) => {
-                        const subjects = toArray(t.subjects)
-                        const slots = toSlotArray(t.availability)
-                        return (
-                          <TableRow key={getId(t)}>
-                            <TableCell className="font-medium">
-                              {t.studentFirstName} {t.studentLastName}
-                            </TableCell>
-                            <TableCell>{t.studentGrade}</TableCell>
-                            <TableCell className="text-sm">
-                              {t.parentFirstName} {t.parentLastName}
-                            </TableCell>
-                            <TableCell className="text-sm">{t.parentEmail}</TableCell>
-                            <TableCell>
-                              <Badge variant="outline">{t.format}</Badge>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex flex-wrap gap-1">
-                                {subjects.slice(0, 3).map((s) => (
-                                  <Badge key={s} variant="secondary" className="text-xs">{s}</Badge>
-                                ))}
-                                {subjects.length > 3 && (
-                                  <Badge variant="secondary" className="text-xs">+{subjects.length - 3}</Badge>
-                                )}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-sm">{slots.length}</TableCell>
-                          </TableRow>
-                        )
-                      })}
-                    </TableBody>
-                  </Table>
-                </div>
+                <>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Student</TableHead>
+                          <TableHead>Grade</TableHead>
+                          <TableHead>Parent</TableHead>
+                          <TableHead>Parent Email</TableHead>
+                          <TableHead>Format</TableHead>
+                          <TableHead>Subjects</TableHead>
+                          <TableHead>Slots</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pagedTutees.map((t) => {
+                          const subjects = toArray(t.subjects)
+                          const slots = toSlotArray(t.availability)
+                          return (
+                            <TableRow key={getId(t)}>
+                              <TableCell className="font-medium">{t.studentFirstName} {t.studentLastName}</TableCell>
+                              <TableCell>{t.studentGrade}</TableCell>
+                              <TableCell className="text-sm">{t.parentFirstName} {t.parentLastName}</TableCell>
+                              <TableCell className="text-sm">{t.parentEmail}</TableCell>
+                              <TableCell><Badge variant="outline">{t.format}</Badge></TableCell>
+                              <TableCell>
+                                <div className="flex flex-wrap gap-1">
+                                  {subjects.slice(0, 3).map((s) => (
+                                    <Badge key={s} variant="secondary" className="text-xs">{s}</Badge>
+                                  ))}
+                                  {subjects.length > 3 && (
+                                    <Badge variant="secondary" className="text-xs">+{subjects.length - 3}</Badge>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-sm">{slots.length}</TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <PaginationControls
+                    page={tuteePage}
+                    totalPages={tuteeTotalPages}
+                    onPrev={() => setTuteePage((p) => Math.max(1, p - 1))}
+                    onNext={() => setTuteePage((p) => Math.min(tuteeTotalPages, p + 1))}
+                  />
+                </>
               )}
             </CardContent>
           </Card>

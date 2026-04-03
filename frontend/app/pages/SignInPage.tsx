@@ -1,36 +1,33 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router';
+import { useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { Button } from '../components/ui/button';
+import { Loader2 } from 'lucide-react';
 
 export function SignInPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const { signIn } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setLoading(true);
 
     try {
       await signIn(email, password);
-      
-      // Get the updated user to determine redirect
-      const userStr = localStorage.getItem('wptp_user');
-      if (userStr) {
-        const user = JSON.parse(userStr);
-        if (user.role === 'admin') {
-          navigate('/admin-dashboard');
-        } else if (user.role === 'student') {
-          navigate('/student-dashboard');
-        } else {
-          navigate('/tutor-dashboard');
-        }
-      }
+      navigate('/admin-dashboard');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sign in');
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Invalid email or password'
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -39,20 +36,8 @@ export function SignInPage() {
       <div className="container mx-auto px-4 py-20">
         <div className="max-w-md mx-auto">
           <h1 className="text-4xl font-bold text-primary mb-8 text-center">
-            Sign In
+            Admin Sign In
           </h1>
-
-          <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 mb-6">
-            <p className="text-sm text-foreground/70 text-center">
-              <strong>Admin Access:</strong> email: admin@wptp.edu | password: admin123
-            </p>
-          </div>
-
-          {error && (
-            <div className="bg-destructive/10 text-destructive px-4 py-3 rounded-lg mb-6">
-              {error}
-            </div>
-          )}
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
@@ -63,10 +48,10 @@ export function SignInPage() {
                 id="email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => { setEmail(e.target.value); setError(''); }}
                 required
                 className="w-full px-4 py-3 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
-                placeholder="Enter your email"
+                placeholder="Enter your admin email"
               />
             </div>
 
@@ -78,27 +63,32 @@ export function SignInPage() {
                 id="password"
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => { setPassword(e.target.value); setError(''); }}
                 required
                 className="w-full px-4 py-3 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
                 placeholder="Enter your password"
               />
             </div>
 
+            {error && (
+              <p className="text-sm text-destructive">{error}</p>
+            )}
+
             <Button
               type="submit"
               className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+              disabled={loading}
             >
-              Sign In
+              {loading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                'Sign In'
+              )}
             </Button>
           </form>
-
-          <p className="text-center mt-6 text-foreground/70">
-            Don't have an account?{' '}
-            <Link to="/sign-up" className="text-primary hover:underline">
-              Sign Up
-            </Link>
-          </p>
         </div>
       </div>
     </div>

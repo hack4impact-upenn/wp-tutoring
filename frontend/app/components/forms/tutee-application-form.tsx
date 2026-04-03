@@ -20,6 +20,14 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { AvailabilityPicker } from "@/components/forms/availability-picker"
 import { SUBJECTS, GRADE_OPTIONS } from "@/lib/constants"
 import type {
@@ -30,11 +38,14 @@ import type {
 } from "@/lib/types"
 import { createTutee } from "@/lib/actions"
 import { toast } from "sonner"
-import { Loader2 } from "lucide-react"
+import { Loader2, CheckCircle2, XCircle } from "lucide-react"
 
 export function TuteeApplicationForm() {
   const navigate = useNavigate()
   const [submitting, setSubmitting] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [modalSuccess, setModalSuccess] = useState(false)
+  const [modalMessage, setModalMessage] = useState("")
 
   // Student info
   const [studentFirstName, setStudentFirstName] = useState("")
@@ -109,11 +120,16 @@ export function TuteeApplicationForm() {
         previousTutorNames,
         additionalNotes,
       })
-      toast.success("Application submitted successfully!")
-      navigate("/")
+      setModalSuccess(true)
+      setModalMessage("Your tutee application has been submitted successfully!")
+      setModalOpen(true)
     } catch (err) {
       console.error("[TuteeForm] Error:", err)
-      toast.error("Something went wrong. Please try again.")
+      setModalSuccess(false)
+      setModalMessage(
+        err instanceof Error ? err.message : "Something went wrong. Please try again."
+      )
+      setModalOpen(true)
     } finally {
       setSubmitting(false)
     }
@@ -421,6 +437,42 @@ export function TuteeApplicationForm() {
           "Submit Application"
         )}
       </Button>
+
+      <Dialog
+        open={modalOpen}
+        onOpenChange={(open) => {
+          setModalOpen(open)
+          if (!open && modalSuccess) navigate("/")
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <div className="mx-auto mb-2">
+              {modalSuccess ? (
+                <CheckCircle2 className="h-10 w-10 text-green-500" />
+              ) : (
+                <XCircle className="h-10 w-10 text-destructive" />
+              )}
+            </div>
+            <DialogTitle className="text-center">
+              {modalSuccess ? "Application Submitted" : "Submission Failed"}
+            </DialogTitle>
+            <DialogDescription className="text-center">
+              {modalMessage}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:justify-center">
+            <Button
+              onClick={() => {
+                setModalOpen(false)
+                if (modalSuccess) navigate("/")
+              }}
+            >
+              {modalSuccess ? "Back to Home" : "Try Again"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </form>
   )
 }

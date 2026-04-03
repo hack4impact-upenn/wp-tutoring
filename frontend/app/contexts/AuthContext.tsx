@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { adminLogin as apiAdminLogin, adminMe as apiAdminMe } from '@/lib/actions';
 
 interface User {
   id: string;
@@ -9,91 +10,65 @@ interface User {
 
 interface AuthContextType {
   user: User | null;
-  signUp: (email: string, password: string, name: string, role: 'student' | 'tutor') => Promise<void>;
+  loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => void;
   isAuthenticated: boolean;
 }
 
+const TOKEN_KEY = 'wptp_token';
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for existing session
-    const storedUser = localStorage.getItem('wptp_user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
-    }
-  }, []);
-
-  const signUp = async (email: string, password: string, name: string, role: 'student' | 'tutor') => {
-    // Get existing users
-    const usersData = localStorage.getItem('wptp_users');
-    const users = usersData ? JSON.parse(usersData) : [];
-
-    // Check if user already exists
-    if (users.find((u: any) => u.email === email)) {
-      throw new Error('User with this email already exists');
-    }
-
-    // Create new user
-    const newUser = {
-      id: Date.now().toString(),
-      email,
-      password, // In production, this would be hashed
-      name,
-      role,
-    };
-
-    users.push(newUser);
-    localStorage.setItem('wptp_users', JSON.stringify(users));
-
-    // Auto sign in
-    const { password: _, ...userWithoutPassword } = newUser;
-    setUser(userWithoutPassword);
-    localStorage.setItem('wptp_user', JSON.stringify(userWithoutPassword));
-  };
-
-  const signIn = async (email: string, password: string) => {
-    // Check for admin credentials
-    if (email === 'admin@wptp.edu' && password === 'admin123') {
-      const adminUser: User = {
-        id: 'admin',
-        email: 'admin@wptp.edu',
-        name: 'Admin',
-        role: 'admin',
-      };
-      setUser(adminUser);
-      localStorage.setItem('wptp_user', JSON.stringify(adminUser));
+    const token = localStorage.getItem(TOKEN_KEY);
+    if (!token) {
+      setLoading(false);
       return;
     }
 
-    // Check regular users
-    const usersData = localStorage.getItem('wptp_users');
-    const users = usersData ? JSON.parse(usersData) : [];
+    apiAdminMe(token)
+      .then((admin) => {
+        setUser({
+          id: admin._id,
+          email: admin.email,
+          name: admin.name,
+          role: 'admin',
+        });
+      })
+      .catch(() => {
+        localStorage.removeItem(TOKEN_KEY);
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
-    const foundUser = users.find((u: any) => u.email === email && u.password === password);
-    if (!foundUser) {
-      throw new Error('Invalid email or password');
-    }
+  const signIn = async (email: string, password: string) => {
+    const result = await apiAdminLogin(email, password);
 
-    const { password: _, ...userWithoutPassword } = foundUser;
-    setUser(userWithoutPassword);
-    localStorage.setItem('wptp_user', JSON.stringify(userWithoutPassword));
+    localStorage.setItem(TOKEN_KEY, result.token);
+
+    setUser({
+      id: result.admin._id,
+      email: result.admin.email,
+      name: result.admin.name,
+      role: 'admin',
+    });
   };
 
   const signOut = () => {
     setUser(null);
-    localStorage.removeItem('wptp_user');
+    localStorage.removeItem(TOKEN_KEY);
   };
 
   return (
     <AuthContext.Provider
       value={{
         user,
-        signUp,
+        loading,
         signIn,
         signOut,
         isAuthenticated: !!user,

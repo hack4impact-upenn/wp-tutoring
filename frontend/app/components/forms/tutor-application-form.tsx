@@ -14,12 +14,20 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { AvailabilityPicker } from "@/components/forms/availability-picker"
 import { SUBJECTS } from "@/lib/constants"
 import type { AvailabilitySlot, AgeRange, TutoringFormat, TutorApplication } from "@/lib/types"
 import { createTutor } from "@/lib/actions"
 import { toast } from "sonner"
-import { Loader2 } from "lucide-react"
+import { Loader2, CheckCircle2, XCircle } from "lucide-react"
 
 const AGE_RANGES: AgeRange[] = ["K-3", "4-8", "9-12"]
 const YEARS = ["Freshman", "Sophomore", "Junior", "Senior", "Graduate"]
@@ -31,6 +39,9 @@ interface TutorApplicationFormProps {
 export function TutorApplicationForm({ initialData }: TutorApplicationFormProps = {}) {
   const navigate = useNavigate()
   const [submitting, setSubmitting] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [modalSuccess, setModalSuccess] = useState(false)
+  const [modalMessage, setModalMessage] = useState("")
 
   const [firstName, setFirstName] = useState(initialData?.firstName ?? "")
   const [lastName, setLastName] = useState(initialData?.lastName ?? "")
@@ -93,11 +104,16 @@ export function TutorApplicationForm({ initialData }: TutorApplicationFormProps 
         previousTuteeNames,
         additionalNotes,
       })
-      toast.success("Application submitted successfully!")
-      navigate("/")
+      setModalSuccess(true)
+      setModalMessage("Your tutor application has been submitted successfully!")
+      setModalOpen(true)
     } catch (err) {
       console.error("[TutorForm] Error:", err)
-      toast.error("Something went wrong. Please try again.")
+      setModalSuccess(false)
+      setModalMessage(
+        err instanceof Error ? err.message : "Something went wrong. Please try again."
+      )
+      setModalOpen(true)
     } finally {
       setSubmitting(false)
     }
@@ -317,6 +333,42 @@ export function TutorApplicationForm({ initialData }: TutorApplicationFormProps 
           "Submit Application"
         )}
       </Button>
+
+      <Dialog
+        open={modalOpen}
+        onOpenChange={(open) => {
+          setModalOpen(open)
+          if (!open && modalSuccess) navigate("/")
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <div className="mx-auto mb-2">
+              {modalSuccess ? (
+                <CheckCircle2 className="h-10 w-10 text-green-500" />
+              ) : (
+                <XCircle className="h-10 w-10 text-destructive" />
+              )}
+            </div>
+            <DialogTitle className="text-center">
+              {modalSuccess ? "Application Submitted" : "Submission Failed"}
+            </DialogTitle>
+            <DialogDescription className="text-center">
+              {modalMessage}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="sm:justify-center">
+            <Button
+              onClick={() => {
+                setModalOpen(false)
+                if (modalSuccess) navigate("/")
+              }}
+            >
+              {modalSuccess ? "Back to Home" : "Try Again"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </form>
   )
 }

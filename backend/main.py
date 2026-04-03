@@ -1,14 +1,50 @@
+import hashlib
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query
+import jwt
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, EmailStr
 from bson import ObjectId
 
 from tutoring.mongo import get_db
 from tutoring.matching import run_matching, SUBJECTS
+
+JWT_SECRET = os.environ.get("JWT_SECRET", "")
+if not JWT_SECRET:
+    raise RuntimeError("JWT_SECRET is not set in .env")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRATION_HOURS = 24
+
+
+def _hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode()).hexdigest()
+
+
+def _create_token(admin_id: str, email: str) -> str:
+    payload = {
+        "sub": admin_id,
+        "email": email,
+        "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS),
+        "iat": datetime.now(timezone.utc),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+
+_bearer_scheme = HTTPBearer()
+
+
+def _get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme)) -> dict[str, str]:
+    try:
+        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        return {"_id": payload["sub"], "email": payload["email"]}
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
 
 
 app = FastAPI(title="WPTP API", version="1.0.0")
@@ -65,6 +101,13 @@ class TuteePayload(BaseModel):
     siblingPreference: str = "No Preference"
     previousTutorNames: str | None = ""
     additionalNotes: str | None = ""
+
+
+class AdminPayload(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+    role: str = "admin"
 
 
 class AdminLoginPayload(BaseModel):
@@ -213,13 +256,85 @@ def create_tutee(payload: TuteePayload) -> dict[str, Any]:
     return doc
 
 
-@app.post("/api/admin/login")
-def admin_login(payload: AdminLoginPayload) -> dict[str, bool]:
-    expected_email = os.environ.get("ADMIN_EMAIL", "admin@wptp.edu").lower()
-    expected_password = os.environ.get("ADMIN_PASSWORD", "admin123")
-    if payload.email.lower() != expected_email or payload.password != expected_password:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+@app.get("/api/admins")
+def list_admins() -> list[dict[str, Any]]:
+    db = get_db()
+    results = []
+    for a in db.admins.find().sort("_id", -1):
+        doc = _serialize(a)
+        doc.pop("password", None)
+        results.append(doc)
+    return results
+
+
+@app.post("/api/admins", status_code=201)
+def create_admin(payload: AdminPayload) -> dict[str, Any]:
+    db = get_db()
+    if not payload.name.strip() or not payload.email.strip():
+        raise HTTPException(status_code=400, detail="name and email are required")
+    existing = db.admins.find_one({"email": payload.email.strip().lower()})
+    if existing:
+        raise HTTPException(status_code=409, detail="Admin with this email already exists")
+    doc = {
+        "name": payload.name.strip(),
+        "email": payload.email.strip().lower(),
+        "password": _hash_password(payload.password),
+        "role": payload.role,
+        "createdAt": _now_iso(),
+    }
+    result = db.admins.insert_one(doc)
+    doc["_id"] = str(result.inserted_id)
+    del doc["password"]
+    return doc
+
+
+@app.delete("/api/admins/{admin_id}")
+def delete_admin(admin_id: str) -> dict[str, bool]:
+    db = get_db()
+    try:
+        oid = ObjectId(admin_id)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid admin id") from exc
+    result = db.admins.delete_one({"_id": oid})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Admin not found")
     return {"ok": True}
+
+
+@app.post("/api/admin/login")
+def admin_login(payload: AdminLoginPayload) -> dict[str, Any]:
+    db = get_db()
+    admin = db.admins.find_one({"email": payload.email.strip().lower()})
+    if not admin:
+        raise HTTPException(status_code=401, detail="No account found with this email")
+    if admin.get("password") != _hash_password(payload.password):
+        raise HTTPException(status_code=401, detail="Incorrect password")
+    admin_id = str(admin["_id"])
+    token = _create_token(admin_id, admin["email"])
+    return {
+        "ok": True,
+        "token": token,
+        "admin": {
+            "_id": admin_id,
+            "name": admin.get("name", ""),
+            "email": admin.get("email", ""),
+            "role": admin.get("role", "admin"),
+        },
+    }
+
+
+@app.get("/api/admin/me")
+def admin_me(current: dict[str, str] = Depends(_get_current_admin)) -> dict[str, Any]:
+    db = get_db()
+    admin = db.admins.find_one({"_id": ObjectId(current["_id"])})
+    if not admin:
+        raise HTTPException(status_code=401, detail="Admin not found")
+    return {
+        "_id": str(admin["_id"]),
+        "name": admin.get("name", ""),
+        "email": admin.get("email", ""),
+        "role": admin.get("role", "admin"),
+    }
 
 
 @app.get("/api/sections")
