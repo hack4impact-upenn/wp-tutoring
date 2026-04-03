@@ -55,10 +55,10 @@ export function Navigation({ scrolled }: NavigationProps) {
     </div>
   ) : (
     <Button
-      onClick={() => { navigate('/admin-dashboard'); setMobileOpen(false); }}
+      onClick={() => { navigate('/apply/tutee'); setMobileOpen(false); }}
       className="bg-primary text-primary-foreground hover:bg-primary/90"
     >
-      Sign In
+      Parent Form
     </Button>
   );
 

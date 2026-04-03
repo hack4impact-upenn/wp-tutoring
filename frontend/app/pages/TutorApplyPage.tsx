@@ -7,8 +7,12 @@ import { Loader2, Search, UserPlus } from "lucide-react"
 import { TutorApplicationForm } from "../components/forms/tutor-application-form"
 import { lookupTutorByPennId } from "@/lib/actions"
 import type { TutorApplication } from "@/lib/types"
+import { useNavigate } from "react-router"
+
+const ADMIN_PENN_ID = "12345678"
 
 export function TutorApplyPage() {
+  const navigate = useNavigate()
   const [pennId, setPennId] = useState("")
   const [looking, setLooking] = useState(false)
   const [started, setStarted] = useState(false)
@@ -17,6 +21,10 @@ export function TutorApplyPage() {
   async function handleLookup(e: React.FormEvent) {
     e.preventDefault()
     if (!pennId.trim()) return
+    if (pennId.trim() === ADMIN_PENN_ID) {
+      navigate("/admin-dashboard")
+      return
+    }
 
     setLooking(true)
     try {

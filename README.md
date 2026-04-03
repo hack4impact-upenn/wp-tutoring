@@ -1,19 +1,18 @@
 # West Philadelphia Tutoring Project (WPTP)
 
-This repo contains the **frontend** (Next.js) and **backend** (Django) for the West Philadelphia Tutoring Project.
+This repo contains the **frontend** (Vite + React) and **backend** (FastAPI + MongoDB) for the West Philadelphia Tutoring Project.
 
 ## Project structure
 
 ```
 wp-tutoring/
-├── frontend/          # Next.js app (React, TypeScript)
-│   ├── app/           # Pages and API routes
-│   ├── components/
+├── frontend/          # Vite + React app (TypeScript)
+│   ├── app/
+│   ├── lib/
 │   └── ...
-├── backend/           # Django API
-│   ├── config/        # Django project (settings, urls, wsgi)
-│   ├── tutoring/      # Tutoring app (models, views, matching)
-│   ├── manage.py
+├── backend/           # FastAPI API
+│   ├── main.py        # API entrypoint
+│   ├── tutoring/      # Mongo connection/helpers + matching logic
 │   └── requirements.txt
 └── README.md
 ```
@@ -25,9 +24,9 @@ wp-tutoring/
 
 ---
 
-## Backend (Django)
+## Backend (FastAPI + MongoDB)
 
-The backend serves the API (tutors, students, matching, etc.). Default port is **8000**.
+The backend serves the API (tutors, tutees, admin login). Default port is **8000**.
 
 ### 1. Go to the backend directory
 
@@ -52,29 +51,23 @@ python3 -m venv .venv
 pip install -r requirements.txt
 ```
 
-### 5. Run migrations
+### 5. Start the development server
 
 ```bash
-python manage.py migrate
-```
-
-### 6. Start the development server
-
-```bash
-python manage.py runserver
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 By default the API is at **http://127.0.0.1:8000**. To use another port (e.g. if 8000 is in use):
 
 ```bash
-python manage.py runserver 8001
+uvicorn main:app --host 0.0.0.0 --port 8001 --reload
 ```
 
 Then the API base URL is **http://127.0.0.1:8001**.
 
 ---
 
-## Frontend (Next.js)
+## Frontend (Vite + React)
 
 The frontend runs at **http://localhost:3000** and talks to the backend API for tutor/student applications and matching.
 
@@ -117,7 +110,7 @@ npm run dev:frontend
    ```bash
    cd backend
    source .venv/bin/activate   # or .venv\Scripts\activate on Windows
-   python manage.py runserver
+   uvicorn main:app --host 0.0.0.0 --port 8000 --reload
    ```
 
 2. **Terminal 2 — Frontend**
@@ -134,10 +127,10 @@ Then use:
 
 **Connecting frontend to backend**
 
-The frontend expects the backend at **http://127.0.0.1:8001** by default. To point it at a different URL (e.g. backend on port 8000), create **`frontend/.env.local`**:
+The frontend expects the backend at **http://127.0.0.1:8000** by default. To point it at a different URL, create **`frontend/.env`**:
 
 ```env
-BACKEND_URL=http://127.0.0.1:8000
+VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
 ---
@@ -146,7 +139,7 @@ BACKEND_URL=http://127.0.0.1:8000
 
 | Part     | Directory  | Install              | Run                          |
 |----------|------------|----------------------|------------------------------|
-| Backend  | `backend/` | `pip install -r requirements.txt` + `migrate` | `python manage.py runserver` |
+| Backend  | `backend/` | `pip install -r requirements.txt` | `uvicorn main:app --host 0.0.0.0 --port 8000 --reload` |
 | Frontend | `frontend/`| `npm install`        | `npm run dev`                 |
 
-Ensure the backend is running before submitting tutor or student applications from the frontend, so data is saved to the Django database.
+Ensure the backend is running before submitting tutor or tutee applications from the frontend, so data is saved to MongoDB.

@@ -1,12 +1,13 @@
 {
   "name": "wp-tutoring",
   "private": true,
-  "description": "West Philadelphia Tutoring — frontend (Next.js) and backend (Django)",
+  "description": "West Philadelphia Tutoring — frontend (Vite + React) and backend (FastAPI + MongoDB)",
   "scripts": {
     "dev": "npm run dev --prefix frontend",
     "dev:frontend": "npm run dev --prefix frontend",
+    "dev:backend": "cd backend && source venv/bin/activate && uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
     "build": "npm run build --prefix frontend",
-    "start": "npm run start --prefix frontend",
+    "start": "npm run preview --prefix frontend",
     "lint": "npm run lint --prefix frontend"
   },
   "dependencies": {
