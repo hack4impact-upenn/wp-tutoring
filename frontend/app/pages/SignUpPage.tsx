@@ -127,9 +127,9 @@ export function SignUpPage() {
           </form>
 
           <p className="text-center mt-6 text-foreground/70">
-            Already have an account?{' '}
-            <Link to="/sign-in" className="text-primary hover:underline">
-              Sign In
+            Parent access starts here:{' '}
+            <Link to="/apply/tutee" className="text-primary hover:underline">
+              Go to Parent Form
             </Link>
           </p>
         </div>

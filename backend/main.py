@@ -7,11 +7,11 @@ import jwt
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from bson import ObjectId
 
 from tutoring.mongo import get_db
-from tutoring.matching import run_matching, SUBJECTS
+from tutoring.matching import run_matching_cpsat, SUBJECTS
 
 JWT_SECRET = os.environ.get("JWT_SECRET", "")
 if not JWT_SECRET:
@@ -69,6 +69,44 @@ def _serialize(doc: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _age_ranges_to_grade_prefs(age_ranges: list[str]) -> list[str]:
+    mapping = {
+        "K-3": ["K", "1", "2", "3"],
+        "4-8": ["4", "5", "6", "7", "8"],
+        "9-12": ["9", "10", "11", "12"],
+    }
+    out: list[str] = []
+    for r in age_ranges:
+        out.extend(mapping.get(r, []))
+    return sorted(set(out))
+
+
+def _normalize_tutor_doc(doc: dict[str, Any]) -> dict[str, Any]:
+    """Backfill canonical CP-SAT fields for legacy records."""
+    out = dict(doc)
+    out.setdefault("maxCapacity", 1)
+    out.setdefault("tutorGender", "Unknown")
+    out.setdefault("apIbReady", False)
+    out.setdefault("returningStudentIds", [])
+    out.setdefault("subjectList", out.get("subjects") or [])
+    out.setdefault("gradePrefs", _age_ranges_to_grade_prefs(out.get("ageRanges") or []))
+    return out
+
+
+def _normalize_tutee_doc(doc: dict[str, Any]) -> dict[str, Any]:
+    """Backfill canonical CP-SAT fields for legacy records."""
+    out = dict(doc)
+    out.setdefault("requiredTutorId", None)
+    out.setdefault("preferredTutorId", None)
+    out.setdefault("familyId", None)
+    out.setdefault("requiredGender", "Any")
+    out.setdefault("returningStatus", "none")  # one of: none, preferred, required
+    out.setdefault("subjectNeeds", out.get("subjects") or [])
+    out.setdefault("grade", out.get("studentGrade") or "")
+    out.setdefault("preferredTimeSlots", [])
+    return out
+
+
 class TutorPayload(BaseModel):
     firstName: str
     lastName: str
@@ -82,6 +120,13 @@ class TutorPayload(BaseModel):
     ageRanges: list[str]
     previousTuteeNames: str | None = ""
     additionalNotes: str | None = ""
+    # Canonical CP-SAT fields
+    maxCapacity: int = Field(default=1, ge=1)
+    tutorGender: str = "Unknown"
+    apIbReady: bool = False
+    returningStudentIds: list[str] = Field(default_factory=list)
+    gradePrefs: list[str] = Field(default_factory=list)
+    subjectList: list[str] = Field(default_factory=list)
 
 
 class TuteePayload(BaseModel):
@@ -101,6 +146,15 @@ class TuteePayload(BaseModel):
     siblingPreference: str = "No Preference"
     previousTutorNames: str | None = ""
     additionalNotes: str | None = ""
+    # Canonical CP-SAT fields
+    requiredTutorId: str | None = None
+    preferredTutorId: str | None = None
+    familyId: str | None = None
+    requiredGender: str = "Any"  # Male, Female, Any
+    returningStatus: str = "none"  # one of: none, preferred, required
+    subjectNeeds: list[str] = Field(default_factory=list)
+    grade: str | None = None
+    preferredTimeSlots: list[dict[str, str]] = Field(default_factory=list)
 
 
 class AdminPayload(BaseModel):
@@ -148,7 +202,7 @@ def health() -> dict[str, str]:
 @app.get("/api/tutors")
 def list_tutors() -> list[dict[str, Any]]:
     db = get_db()
-    return [_serialize(t) for t in db.tutorApplications.find().sort("_id", -1)]
+    return [_serialize(_normalize_tutor_doc(t)) for t in db.tutorApplications.find().sort("_id", -1)]
 
 
 @app.post("/api/tutors", status_code=201)
@@ -168,6 +222,13 @@ def create_tutor(payload: TutorPayload) -> dict[str, Any]:
         "ageRanges": payload.ageRanges,
         "previousTuteeNames": payload.previousTuteeNames or "",
         "additionalNotes": payload.additionalNotes or "",
+        # Canonical CP-SAT fields
+        "maxCapacity": payload.maxCapacity,
+        "tutorGender": payload.tutorGender,
+        "apIbReady": payload.apIbReady,
+        "returningStudentIds": payload.returningStudentIds,
+        "subjectList": payload.subjectList or payload.subjects,
+        "gradePrefs": payload.gradePrefs or _age_ranges_to_grade_prefs(payload.ageRanges),
         "createdAt": _now_iso(),
         "updatedAt": _now_iso(),
     }
@@ -194,13 +255,13 @@ def lookup_tutor(pennId: str = Query(..., min_length=1)) -> dict[str, Any]:
     tutor = db.tutorApplications.find_one({"pennId": pennId.strip()})
     if not tutor:
         raise HTTPException(status_code=404, detail="Not found")
-    return _serialize(tutor)
+    return _serialize(_normalize_tutor_doc(tutor))
 
 
 @app.get("/api/tutees")
 def list_tutees() -> list[dict[str, Any]]:
     db = get_db()
-    return [_serialize(t) for t in db.tuteeApplications.find().sort("_id", -1)]
+    return [_serialize(_normalize_tutee_doc(t)) for t in db.tuteeApplications.find().sort("_id", -1)]
 
 
 @app.get("/api/tutees/lookup")
@@ -212,7 +273,7 @@ def lookup_tutee(parentEmail: str = Query(..., min_length=3)) -> dict[str, Any]:
     )
     if not tutee:
         raise HTTPException(status_code=404, detail="Not found")
-    return _serialize(tutee)
+    return _serialize(_normalize_tutee_doc(tutee))
 
 
 @app.get("/api/students")
@@ -241,6 +302,15 @@ def create_tutee(payload: TuteePayload) -> dict[str, Any]:
         "siblingPreference": payload.siblingPreference,
         "previousTutorNames": payload.previousTutorNames or "",
         "additionalNotes": payload.additionalNotes or "",
+        # Canonical CP-SAT fields
+        "requiredTutorId": payload.requiredTutorId,
+        "preferredTutorId": payload.preferredTutorId,
+        "familyId": payload.familyId,
+        "requiredGender": payload.requiredGender,
+        "returningStatus": payload.returningStatus,
+        "subjectNeeds": payload.subjectNeeds or payload.subjects,
+        "grade": payload.grade or payload.studentGrade,
+        "preferredTimeSlots": payload.preferredTimeSlots,
         "createdAt": _now_iso(),
         "updatedAt": _now_iso(),
     }
@@ -363,6 +433,12 @@ def list_assignments(semester: str | None = None) -> list[dict[str, Any]]:
     for row in rows:
         tutor = db.tutorApplications.find_one({"_id": row["tutor_id"]}) if row.get("tutor_id") else None
         tutee = db.tuteeApplications.find_one({"_id": row["student_id"]}) if row.get("student_id") else None
+        t_snap = (
+            _serialize(_normalize_tutor_doc(dict(tutor))) if tutor else None
+        )
+        s_snap = (
+            _serialize(_normalize_tutee_doc(dict(tutee))) if tutee else None
+        )
         out.append(
             {
                 "id": str(row["_id"]),
@@ -371,10 +447,15 @@ def list_assignments(semester: str | None = None) -> list[dict[str, Any]]:
                 "section_id": str(row.get("section_id")) if row.get("section_id") else None,
                 "semester": row.get("semester"),
                 "manual_override": bool(row.get("manual_override", False)),
+                "pairScore": row.get("pairScore"),
+                "scoreExplanation": row.get("scoreExplanation"),
+                "reason": row.get("reason"),
                 "tutor_name": f"{(tutor or {}).get('firstName', '')} {(tutor or {}).get('lastName', '')}".strip(),
                 "tutor_email": (tutor or {}).get("email"),
                 "student_name": f"{(tutee or {}).get('studentFirstName', '')} {(tutee or {}).get('studentLastName', '')}".strip(),
                 "student_email": (tutee or {}).get("parentEmail"),
+                "tutorDetail": t_snap,
+                "tuteeDetail": s_snap,
             }
         )
     return out
@@ -385,82 +466,74 @@ def run_matching_endpoint(payload: RunMatchingPayload) -> dict[str, Any]:
     db = get_db()
     semester = payload.semester or _current_semester()
 
-    tutor_docs = list(db.tutorApplications.find())
-    tutee_docs = list(db.tuteeApplications.find())
+    tutor_docs = [_normalize_tutor_doc(dict(t)) for t in db.tutorApplications.find()]
+    tutee_docs = [_normalize_tutee_doc(dict(t)) for t in db.tuteeApplications.find()]
     section_docs = list(db.sections.find())
     if not section_docs:
         sid = db.sections.insert_one({"name": "Section A", "time_block": "TBD"}).inserted_id
         section_docs = [{"_id": sid, "name": "Section A", "time_block": "TBD"}]
 
-    tutor_map: dict[int, Any] = {}
-    student_map: dict[int, Any] = {}
-    tutors = []
-    students = []
+    tutor_map: dict[int, Any] = {i: t["_id"] for i, t in enumerate(tutor_docs)}
+    student_map: dict[int, Any] = {j: s["_id"] for j, s in enumerate(tutee_docs)}
 
-    for idx, t in enumerate(tutor_docs, start=1):
-        tutor_map[idx] = t["_id"]
-        tutors.append(
-            {
-                "id": idx,
-                "subjects": ", ".join(t.get("subjects") or []),
-                "grade_levels": ", ".join(
-                    {"K-3": "1,2,3", "4-8": "4,5,6,7,8", "9-12": "9,10,11,12"}.get(x, "")
-                    for x in (t.get("ageRanges") or [])
-                ),
-            }
-        )
-
-    for idx, s in enumerate(tutee_docs, start=1):
-        student_map[idx] = s["_id"]
-        grade = s.get("studentGrade", "")
-        digits = "".join(ch for ch in str(grade) if ch.isdigit())
-        students.append(
-            {
-                "id": idx,
-                "subjects_needed": ", ".join(s.get("subjects") or []),
-                "grade_level": int(digits) if digits else None,
-                "sibling_ids": "",
-            }
-        )
-
-    sections = [{"id": i + 1, "name": sec.get("name", ""), "time_block": sec.get("time_block", "")} for i, sec in enumerate(section_docs)]
-    last_pairs = []
-    for p in db.lastSemesterPairs.find():
-        try:
-            last_pairs.append({"tutor_id": int(p["tutor_id"]), "student_id": int(p["student_id"])})
-        except Exception:
-            continue
-
-    result = run_matching(tutors=tutors, students=students, sections=sections, last_semester_pairs=last_pairs)
+    result = run_matching_cpsat(tutor_docs=tutor_docs, tutee_docs=tutee_docs)
     db.matches.delete_many({"semester": semester})
 
     inserted = 0
+    default_section_oid = section_docs[0]["_id"] if section_docs else None
     for a in result["assignments"]:
-        tutor_oid = tutor_map.get(a["tutor_id"])
-        student_oid = student_map.get(a["student_id"])
-        section_oid = section_docs[(a.get("section_id", 1) - 1)]["_id"] if section_docs else None
+        ti = a.get("tutor_index")
+        sj = a.get("student_index")
+        tutor_oid = tutor_map.get(ti) if ti is not None else None
+        student_oid = student_map.get(sj) if sj is not None else None
         if not tutor_oid or not student_oid:
             continue
+        expl = a.get("explanation")
         db.matches.insert_one(
             {
                 "tutor_id": tutor_oid,
                 "student_id": student_oid,
-                "section_id": section_oid,
+                "section_id": default_section_oid,
                 "semester": semester,
                 "manual_override": False,
                 "status": "active",
-                "reason": a.get("reason", "subject_fit"),
+                "reason": a.get("reason", "cpsat"),
+                "pairScore": a.get("score"),
+                "scoreExplanation": expl,
                 "createdAt": _now_iso(),
             }
         )
         inserted += 1
 
+    assignment_summaries: list[dict[str, Any]] = []
+    for a in result["assignments"]:
+        ti = a.get("tutor_index")
+        sj = a.get("student_index")
+        assignment_summaries.append(
+            {
+                "tutorId": str(tutor_map[ti]) if ti is not None and ti in tutor_map else None,
+                "studentId": str(student_map[sj]) if sj is not None and sj in student_map else None,
+                "tutorIndex": ti,
+                "studentIndex": sj,
+                "pairScore": a.get("score"),
+                "reason": a.get("reason"),
+                "explanation": a.get("explanation"),
+            }
+        )
+
     return {
         "semester": semester,
         "assignmentsCount": inserted,
+        "assignments": assignment_summaries,
         "unassignedTutors": len(result["unassigned_tutors"]),
         "unassignedStudents": len(result["unassigned_students"]),
+        "matchingMode": result.get("matching_mode"),
+        "assignedStudentCount": result.get("assigned_student_count", inserted),
+        "totalStudentCount": result.get("total_student_count"),
         "log": result["log"],
+        "relaxationLog": result.get("relaxation_log", []),
+        "solverStatus": result.get("solver_status"),
+        "objectiveValue": result.get("objective_value"),
     }
 
 
