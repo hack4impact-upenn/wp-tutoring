@@ -35,12 +35,17 @@ import type {
   TutoringFormat,
   GenderPreference,
   SiblingPreference,
+  TuteeApplication,
 } from "@/lib/types"
 import { createTutee } from "@/lib/actions"
 import { toast } from "sonner"
 import { Loader2, CheckCircle2, XCircle } from "lucide-react"
 
-export function TuteeApplicationForm() {
+interface TuteeApplicationFormProps {
+  initialData?: Partial<TuteeApplication>
+}
+
+export function TuteeApplicationForm({ initialData }: TuteeApplicationFormProps = {}) {
   const navigate = useNavigate()
   const [submitting, setSubmitting] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
@@ -48,28 +53,32 @@ export function TuteeApplicationForm() {
   const [modalMessage, setModalMessage] = useState("")
 
   // Student info
-  const [studentFirstName, setStudentFirstName] = useState("")
-  const [studentLastName, setStudentLastName] = useState("")
-  const [studentAge, setStudentAge] = useState("")
-  const [studentGrade, setStudentGrade] = useState("")
+  const [studentFirstName, setStudentFirstName] = useState(initialData?.studentFirstName ?? "")
+  const [studentLastName, setStudentLastName] = useState(initialData?.studentLastName ?? "")
+  const [studentAge, setStudentAge] = useState(
+    typeof initialData?.studentAge === "number" ? String(initialData.studentAge) : ""
+  )
+  const [studentGrade, setStudentGrade] = useState(initialData?.studentGrade ?? "")
 
   // Parent/guardian
-  const [parentFirstName, setParentFirstName] = useState("")
-  const [parentLastName, setParentLastName] = useState("")
-  const [parentEmail, setParentEmail] = useState("")
-  const [parentPhone, setParentPhone] = useState("")
+  const [parentFirstName, setParentFirstName] = useState(initialData?.parentFirstName ?? "")
+  const [parentLastName, setParentLastName] = useState(initialData?.parentLastName ?? "")
+  const [parentEmail, setParentEmail] = useState(initialData?.parentEmail ?? "")
+  const [parentPhone, setParentPhone] = useState(initialData?.parentPhone ?? "")
 
   // Preferences
-  const [availability, setAvailability] = useState<AvailabilitySlot[]>([])
-  const [format, setFormat] = useState<TutoringFormat>("Either")
-  const [subjects, setSubjects] = useState<string[]>([])
+  const [availability, setAvailability] = useState<AvailabilitySlot[]>(
+    initialData?.availability ?? []
+  )
+  const [format, setFormat] = useState<TutoringFormat>(initialData?.format ?? "Either")
+  const [subjects, setSubjects] = useState<string[]>(initialData?.subjects ?? [])
   const [genderPreference, setGenderPreference] =
-    useState<GenderPreference>("No Preference")
-  const [siblingNames, setSiblingNames] = useState("")
+    useState<GenderPreference>(initialData?.genderPreference ?? "No Preference")
+  const [siblingNames, setSiblingNames] = useState(initialData?.siblingNames ?? "")
   const [siblingPreference, setSiblingPreference] =
-    useState<SiblingPreference>("No Preference")
-  const [previousTutorNames, setPreviousTutorNames] = useState("")
-  const [additionalNotes, setAdditionalNotes] = useState("")
+    useState<SiblingPreference>(initialData?.siblingPreference ?? "No Preference")
+  const [previousTutorNames, setPreviousTutorNames] = useState(initialData?.previousTutorNames ?? "")
+  const [additionalNotes, setAdditionalNotes] = useState(initialData?.additionalNotes ?? "")
 
   const toggleSubject = (s: string) => {
     setSubjects((prev) =>

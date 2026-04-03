@@ -43,8 +43,18 @@ export function Navigation({ scrolled }: NavigationProps) {
   );
 
   const authSection = isAuthenticated ? (
-    <div className="flex items-center gap-4">
+    <div className="flex items-center gap-3">
       <span className="text-sm text-foreground/70">{user?.name}</span>
+      {user?.role === 'admin' && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="border-primary text-primary hover:bg-primary hover:text-primary-foreground"
+          onClick={() => { navigate('/admin-dashboard'); setMobileOpen(false); }}
+        >
+          Admin Dashboard
+        </Button>
+      )}
       <Button
         onClick={handleSignOut}
         variant="outline"
@@ -54,12 +64,22 @@ export function Navigation({ scrolled }: NavigationProps) {
       </Button>
     </div>
   ) : (
-    <Button
-      onClick={() => { navigate('/admin-dashboard'); setMobileOpen(false); }}
-      className="bg-primary text-primary-foreground hover:bg-primary/90"
-    >
-      Sign In
-    </Button>
+    <div className="flex items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => { navigate('/sign-in'); setMobileOpen(false); }}
+        className="border-primary text-primary hover:bg-primary hover:text-primary-foreground"
+      >
+        Admin Sign In
+      </Button>
+      <Button
+        onClick={() => { navigate('/apply/tutee'); setMobileOpen(false); }}
+        className="bg-primary text-primary-foreground hover:bg-primary/90"
+      >
+        Parent Form
+      </Button>
+    </div>
   );
 
   return (
