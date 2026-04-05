@@ -128,6 +128,19 @@ export type AssignmentTuteeDetail = Partial<TuteeApplication> & {
   preferredTimeSlots?: AvailabilitySlot[]
 }
 
+export interface IndividualMatchCandidateRow {
+  id: string
+  name: string
+  email: string
+  eligible: boolean
+  correlation_points: number | null
+  current_tutee_count: number | null
+}
+
+export interface IndividualMatchResponse {
+  candidates: IndividualMatchCandidateRow[]
+}
+
 export interface AssignmentRow {
   id: string
   tutor_id?: string | null

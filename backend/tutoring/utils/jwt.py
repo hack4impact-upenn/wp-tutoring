@@ -14,7 +14,7 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "")
 if not JWT_SECRET:
     raise RuntimeError("JWT_SECRET is not set in .env")
 JWT_ALGORITHM = "HS256"
-JWT_EXPIRATION_HOURS = 24
+JWT_EXPIRATION_DAYS = 30
 
 
 def hash_password(password: str) -> str:
@@ -25,7 +25,7 @@ def create_token(admin_id: str, email: str) -> str:
     payload = {
         "sub": admin_id,
         "email": email,
-        "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS),
+        "exp": datetime.now(timezone.utc) + timedelta(days=JWT_EXPIRATION_DAYS),
         "iat": datetime.now(timezone.utc),
     }
     return pyjwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)

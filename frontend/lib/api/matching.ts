@@ -1,4 +1,4 @@
-import type { AssignmentRow, RunMatchingResult } from "@/lib/types"
+import type { AssignmentRow, IndividualMatchResponse, RunMatchingResult } from "@/lib/types"
 import { apiFetch } from "./client"
 
 export async function getAssignments(semester?: string): Promise<AssignmentRow[]> {
@@ -24,6 +24,50 @@ export async function reassignMatch(
       tutor_id: params.tutorId,
       student_id: params.studentId,
       semester: params.semester ?? null,
+    }),
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export async function previewIndividualMatch(
+  body: {
+    fixed_tutor_id?: string | null
+    fixed_tutee_id?: string | null
+    candidate_tutor_ids?: string[]
+    candidate_tutee_ids?: string[]
+    semester?: string | null
+  },
+  token: string,
+): Promise<IndividualMatchResponse> {
+  return apiFetch<IndividualMatchResponse>("/api/assignments/individual-match", {
+    method: "POST",
+    body: JSON.stringify({
+      fixed_tutor_id: body.fixed_tutor_id ?? null,
+      fixed_tutee_id: body.fixed_tutee_id ?? null,
+      candidate_tutor_ids: body.candidate_tutor_ids ?? [],
+      candidate_tutee_ids: body.candidate_tutee_ids ?? [],
+      semester: body.semester ?? null,
+    }),
+    headers: { Authorization: `Bearer ${token}` },
+  })
+}
+
+export async function overrideAssignment(
+  params: {
+    tutorId: string
+    studentId: string
+    semester?: string | null
+    sectionId?: string | null
+  },
+  token: string,
+): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>("/api/assignments/override", {
+    method: "POST",
+    body: JSON.stringify({
+      tutor_id: params.tutorId,
+      student_id: params.studentId,
+      semester: params.semester ?? null,
+      section_id: params.sectionId ?? null,
     }),
     headers: { Authorization: `Bearer ${token}` },
   })

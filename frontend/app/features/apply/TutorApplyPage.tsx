@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useMutation } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -14,33 +15,34 @@ const ADMIN_PENN_ID = "12345678"
 export function TutorApplyPage() {
   const navigate = useNavigate()
   const [pennId, setPennId] = useState("")
-  const [looking, setLooking] = useState(false)
   const [started, setStarted] = useState(false)
   const [existingData, setExistingData] = useState<Partial<TutorApplication> | undefined>(undefined)
 
-  async function handleLookup(e: React.FormEvent) {
-    e.preventDefault()
-    if (!pennId.trim()) return
-    if (pennId.trim() === ADMIN_PENN_ID) {
-      navigate("/admin-dashboard")
-      return
-    }
-
-    setLooking(true)
-    try {
-      const existing = await lookupTutorByPennId(pennId.trim())
+  const lookupMutation = useMutation({
+    mutationFn: (id: string) => lookupTutorByPennId(id),
+    onSuccess: (existing, id) => {
       if (existing) {
         setExistingData(existing)
       } else {
-        setExistingData({ pennId: pennId.trim() })
+        setExistingData({ pennId: id })
       }
       setStarted(true)
-    } catch {
-      setExistingData({ pennId: pennId.trim() })
+    },
+    onError: (_, id) => {
+      setExistingData({ pennId: id })
       setStarted(true)
-    } finally {
-      setLooking(false)
+    },
+  })
+
+  function handleLookup(e: React.FormEvent) {
+    e.preventDefault()
+    const id = pennId.trim()
+    if (!id) return
+    if (id === ADMIN_PENN_ID) {
+      navigate("/admin-dashboard")
+      return
     }
+    lookupMutation.mutate(id)
   }
 
   function handleStartFresh() {
@@ -87,9 +89,9 @@ export function TutorApplyPage() {
             <Button
               type="submit"
               className="w-full"
-              disabled={!pennId.trim() || looking}
+              disabled={!pennId.trim() || lookupMutation.isPending}
             >
-              {looking ? (
+              {lookupMutation.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Looking up...

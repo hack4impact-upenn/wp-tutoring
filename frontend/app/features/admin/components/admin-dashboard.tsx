@@ -1,5 +1,16 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Card,
   CardContent,
@@ -16,11 +27,12 @@ import {
   runMatching,
   patchTutorStatus,
   patchTuteeStatus,
-  getAdminToken,
   APIError,
   type AssignmentRow,
   type RunMatchingResult,
 } from "@/lib/api"
+import { adminKeys } from "@/lib/query-keys"
+import { useAuth } from "@/features/auth/AuthContext"
 import type { ApplicationStatus } from "@/lib/types"
 import { toast } from "sonner"
 import {
@@ -29,14 +41,13 @@ import {
   Link2,
   AlertCircle,
   Loader2,
-  RefreshCw,
   Sparkles,
 } from "lucide-react"
 import type { Tutor, Tutee } from "../types"
 import { getId } from "../types"
 import { ApplicationProfileDialog } from "./application-profile-dialog"
 import { MatchDetailDialog } from "./match-detail-dialog"
-import { ModifyMatchDialog } from "./modify-match-dialog"
+import { ChangeMatchDialog } from "./change-match-dialog"
 import { TutorsView } from "../views/tutors-view"
 import { TuteesView } from "../views/tutees-view"
 import { MatchesView } from "../views/matches-view"
@@ -44,15 +55,10 @@ import { UnmatchedView } from "../views/unmatched-view"
 import { AdminsView } from "../views/admins-view"
 
 export function AdminDashboard() {
-  const [tutors, setTutors] = useState<Tutor[]>([])
-  const [tutees, setTutees] = useState<Tutee[]>([])
-  const [assignments, setAssignments] = useState<AssignmentRow[]>([])
+  const queryClient = useQueryClient()
+  const { adminToken } = useAuth()
   const [lastMatchResult, setLastMatchResult] = useState<RunMatchingResult | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [matchRunning, setMatchRunning] = useState(false)
-  const [dataRevision, setDataRevision] = useState(0)
   const [activeTab, setActiveTab] = useState("tutors")
-  const [adminsTabCount, setAdminsTabCount] = useState(0)
   const [profileOpen, setProfileOpen] = useState(false)
   const [profileTutor, setProfileTutor] = useState<Tutor | null>(null)
   const [profileTutee, setProfileTutee] = useState<Tutee | null>(null)
@@ -60,49 +66,82 @@ export function AdminDashboard() {
   const [matchDetailAssignment, setMatchDetailAssignment] = useState<AssignmentRow | null>(null)
   const [modifyMatchOpen, setModifyMatchOpen] = useState(false)
   const [modifyMatchAssignment, setModifyMatchAssignment] = useState<AssignmentRow | null>(null)
+  const [matchConfirmOpen, setMatchConfirmOpen] = useState(false)
 
-  const bumpDataRevision = useCallback(() => {
-    setDataRevision((r) => r + 1)
-  }, [])
+  const tutorsQuery = useQuery({
+    queryKey: adminKeys.tutors(),
+    queryFn: async () => {
+      const d = await getTutors()
+      return Array.isArray(d) ? d : []
+    },
+  })
 
-  const fetchAll = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [tutorData, tuteeData, assignmentData] = await Promise.all([
-        getTutors(),
-        getTutees(),
-        getAssignments(),
-      ])
-      setTutors(Array.isArray(tutorData) ? tutorData : [])
-      setTutees(Array.isArray(tuteeData) ? tuteeData : [])
-      setAssignments(Array.isArray(assignmentData) ? assignmentData : [])
-      const tok = getAdminToken()
-      if (tok) {
-        try {
-          const adminRows = await getAdmins(tok)
-          setAdminsTabCount(Array.isArray(adminRows) ? adminRows.length : 0)
-        } catch {
-          /* Cookie-only or expired JWT — AdminsView will sync count when possible */
-        }
-      } else {
-        setAdminsTabCount(0)
+  const tuteesQuery = useQuery({
+    queryKey: adminKeys.tutees(),
+    queryFn: async () => {
+      const d = await getTutees()
+      return Array.isArray(d) ? d : []
+    },
+  })
+
+  const assignmentsQuery = useQuery({
+    queryKey: adminKeys.assignments(),
+    queryFn: async () => {
+      const d = await getAssignments()
+      return Array.isArray(d) ? d : []
+    },
+  })
+
+  const adminsListQuery = useQuery({
+    queryKey: adminKeys.adminsList(),
+    queryFn: async () => {
+      if (!adminToken) return []
+      try {
+        const rows = await getAdmins(adminToken)
+        return Array.isArray(rows) ? rows : []
+      } catch {
+        return []
       }
-      bumpDataRevision()
-    } catch {
-      toast.error("Failed to load data.")
-    } finally {
-      setLoading(false)
-    }
-  }, [bumpDataRevision])
+    },
+    enabled: !!adminToken,
+  })
 
-  const handleRunMatching = useCallback(async () => {
-    setMatchRunning(true)
-    try {
-      const result = await runMatching({})
+  const tutors = tutorsQuery.data ?? []
+  const tutees = tuteesQuery.data ?? []
+  const assignments = assignmentsQuery.data ?? []
+
+  const isInitialLoading =
+    tutorsQuery.isPending || tuteesQuery.isPending || assignmentsQuery.isPending
+
+  const dataRevision = useMemo(
+    () =>
+      (tutorsQuery.dataUpdatedAt || 0) +
+      (tuteesQuery.dataUpdatedAt || 0) +
+      (assignmentsQuery.dataUpdatedAt || 0) +
+      (adminsListQuery.dataUpdatedAt || 0),
+    [
+      tutorsQuery.dataUpdatedAt,
+      tuteesQuery.dataUpdatedAt,
+      assignmentsQuery.dataUpdatedAt,
+      adminsListQuery.dataUpdatedAt,
+    ],
+  )
+
+  const adminsTabCount = adminsListQuery.data?.length ?? 0
+
+  const invalidateAssignments = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: adminKeys.assignments() })
+  }, [queryClient])
+
+  const runMatchMutation = useMutation({
+    mutationFn: () => runMatching({}),
+    onSuccess: async (result) => {
       setLastMatchResult(result)
       const next = await getAssignments(result.semester)
-      setAssignments(Array.isArray(next) ? next : [])
-      bumpDataRevision()
+      queryClient.setQueryData<AssignmentRow[]>(
+        adminKeys.assignments(),
+        Array.isArray(next) ? next : [],
+      )
       const status = result.solverStatus || "UNKNOWN"
       if (status === "OPTIMAL" || status === "FEASIBLE") {
         toast.success(
@@ -111,62 +150,122 @@ export function AdminDashboard() {
       } else {
         toast.warning(`Matching finished with status ${status}. Check logs below if needed.`)
       }
-    } catch (err) {
+    },
+    onError: (err) => {
       const msg = err instanceof APIError ? err.message : "Failed to run matching."
       toast.error(msg)
-    } finally {
-      setMatchRunning(false)
-    }
-  }, [bumpDataRevision])
+    },
+  })
 
-  useEffect(() => {
-    fetchAll()
-  }, [fetchAll])
+  const runMatchingJob = useCallback(() => {
+    runMatchMutation.mutate()
+  }, [runMatchMutation])
 
-  const handleTutorStatusChange = useCallback(async (t: Tutor, status: ApplicationStatus) => {
-    const token = getAdminToken()
-    if (!token) {
-      toast.error("You must be signed in to update status.")
+  const pendingTutorCount = tutors.filter((t) => t.applicationStatus === "pending").length
+  const pendingTuteeCount = tutees.filter((t) => t.applicationStatus === "pending").length
+
+  const onRunMatchingClick = useCallback(() => {
+    if (pendingTutorCount > 0 || pendingTuteeCount > 0) {
+      setMatchConfirmOpen(true)
       return
     }
-    try {
-      const updated = await patchTutorStatus(getId(t), status, token)
-      setTutors((prev) =>
-        prev.map((row) => (getId(row) === getId(t) ? { ...row, ...updated } : row)),
-      )
-      toast.success("Status updated")
-    } catch (err) {
-      toast.error(err instanceof APIError ? err.message : "Failed to update status")
-    }
-  }, [])
+    void runMatchingJob()
+  }, [pendingTutorCount, pendingTuteeCount, runMatchingJob])
 
-  const handleTuteeStatusChange = useCallback(async (t: Tutee, status: ApplicationStatus) => {
-    const token = getAdminToken()
-    if (!token) {
-      toast.error("You must be signed in to update status.")
-      return
-    }
-    try {
-      const updated = await patchTuteeStatus(getId(t), status, token)
-      setTutees((prev) =>
-        prev.map((row) => (getId(row) === getId(t) ? { ...row, ...updated } : row)),
-      )
+  const patchTutorMutation = useMutation({
+    mutationFn: async ({ t, status }: { t: Tutor; status: ApplicationStatus }) => {
+      if (!adminToken) throw new Error("no_token")
+      return patchTutorStatus(getId(t), status, adminToken)
+    },
+    onSuccess: (updated, { t }) => {
+      queryClient.setQueryData<Tutor[]>(adminKeys.tutors(), (prev) => {
+        const list = prev ?? []
+        return list.map((row) => (getId(row) === getId(t) ? { ...row, ...updated } : row))
+      })
       toast.success("Status updated")
-    } catch (err) {
+    },
+    onError: (err) => {
+      if (err instanceof Error && err.message === "no_token") {
+        toast.error("You must be signed in to update status.")
+        return
+      }
       toast.error(err instanceof APIError ? err.message : "Failed to update status")
-    }
-  }, [])
+    },
+  })
+
+  const patchTuteeMutation = useMutation({
+    mutationFn: async ({ t, status }: { t: Tutee; status: ApplicationStatus }) => {
+      if (!adminToken) throw new Error("no_token")
+      return patchTuteeStatus(getId(t), status, adminToken)
+    },
+    onSuccess: (updated, { t }) => {
+      queryClient.setQueryData<Tutee[]>(adminKeys.tutees(), (prev) => {
+        const list = prev ?? []
+        return list.map((row) => (getId(row) === getId(t) ? { ...row, ...updated } : row))
+      })
+      toast.success("Status updated")
+    },
+    onError: (err) => {
+      if (err instanceof Error && err.message === "no_token") {
+        toast.error("You must be signed in to update status.")
+        return
+      }
+      toast.error(err instanceof APIError ? err.message : "Failed to update status")
+    },
+  })
+
+  const handleTutorStatusChange = useCallback(
+    (t: Tutor, status: ApplicationStatus) => {
+      if (!adminToken) {
+        toast.error("You must be signed in to update status.")
+        return
+      }
+      patchTutorMutation.mutate({ t, status })
+    },
+    [adminToken, patchTutorMutation],
+  )
+
+  const handleTuteeStatusChange = useCallback(
+    (t: Tutee, status: ApplicationStatus) => {
+      if (!adminToken) {
+        toast.error("You must be signed in to update status.")
+        return
+      }
+      patchTuteeMutation.mutate({ t, status })
+    },
+    [adminToken, patchTuteeMutation],
+  )
 
   const matchedStudentIds = new Set(
     assignments.map((a) => a.student_id).filter(Boolean) as string[],
   )
+  const matchedTutorIds = new Set(assignments.map((a) => a.tutor_id).filter(Boolean) as string[])
   const unmatchedTutees = tutees.filter((t) => !matchedStudentIds.has(getId(t)))
-  const unmatchedTuteeCount = unmatchedTutees.length
+  const unmatchedTutors = tutors.filter((t) => !matchedTutorIds.has(getId(t)))
+  const assignmentSemester = assignments[0]?.semester ?? null
+  const totalUnmatchedCount = unmatchedTutors.length + unmatchedTutees.length
 
-  if (loading) {
+  const coreLoadFailed =
+    tutorsQuery.isError && tuteesQuery.isError && assignmentsQuery.isError && !isInitialLoading
+
+  if (isInitialLoading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (coreLoadFailed) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-md flex-col items-center justify-center gap-4 px-4 pt-24 text-center">
+        <p className="text-muted-foreground">Could not load dashboard data.</p>
+        <Button
+          type="button"
+          onClick={() => void queryClient.invalidateQueries({ queryKey: adminKeys.all })}
+        >
+          Try again
+        </Button>
       </div>
     )
   }
@@ -181,17 +280,13 @@ export function AdminDashboard() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" onClick={handleRunMatching} disabled={matchRunning}>
-            {matchRunning ? (
+          <Button size="sm" onClick={onRunMatchingClick} disabled={runMatchMutation.isPending}>
+            {runMatchMutation.isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
               <Sparkles className="mr-2 h-4 w-4" />
             )}
             Run matching
-          </Button>
-          <Button variant="outline" size="sm" onClick={fetchAll} disabled={matchRunning}>
-            <RefreshCw className="mr-2 h-4 w-4" />
-            Refresh
           </Button>
         </div>
       </div>
@@ -236,8 +331,8 @@ export function AdminDashboard() {
               <AlertCircle className="h-5 w-5 text-destructive" />
             </div>
             <div>
-              <p className="text-2xl font-bold text-foreground">{unmatchedTuteeCount}</p>
-              <p className="text-xs text-muted-foreground">Unmatched Tutees</p>
+              <p className="text-2xl font-bold text-foreground">{totalUnmatchedCount}</p>
+              <p className="text-xs text-muted-foreground">Unmatched (tutors + tutees)</p>
             </div>
           </CardContent>
         </Card>
@@ -277,7 +372,7 @@ export function AdminDashboard() {
           <TabsTrigger value="tutors">Tutors ({tutors.length})</TabsTrigger>
           <TabsTrigger value="tutees">Tutees ({tutees.length})</TabsTrigger>
           <TabsTrigger value="matches">Matches ({assignments.length})</TabsTrigger>
-          <TabsTrigger value="unmatched">Unmatched ({unmatchedTuteeCount})</TabsTrigger>
+          <TabsTrigger value="unmatched">Unmatched ({totalUnmatchedCount})</TabsTrigger>
           <TabsTrigger value="admins">Admins ({adminsTabCount})</TabsTrigger>
         </TabsList>
 
@@ -329,18 +424,19 @@ export function AdminDashboard() {
 
         <TabsContent value="unmatched">
           <UnmatchedView
+            unmatchedTutors={unmatchedTutors}
             unmatchedTutees={unmatchedTutees}
+            tutors={tutors}
+            tutees={tutees}
+            assignmentSemester={assignmentSemester}
             dataRevision={dataRevision}
             activeTab={activeTab}
+            onAssignSuccess={invalidateAssignments}
           />
         </TabsContent>
 
         <TabsContent value="admins">
-          <AdminsView
-            isActive={activeTab === "admins"}
-            dataRevision={dataRevision}
-            onAdminCountChange={setAdminsTabCount}
-          />
+          <AdminsView isActive={activeTab === "admins"} />
         </TabsContent>
       </Tabs>
 
@@ -368,7 +464,7 @@ export function AdminDashboard() {
         tutees={tutees}
       />
 
-      <ModifyMatchDialog
+      <ChangeMatchDialog
         open={modifyMatchOpen}
         onOpenChange={(open) => {
           setModifyMatchOpen(open)
@@ -377,10 +473,55 @@ export function AdminDashboard() {
         assignment={modifyMatchAssignment}
         tutors={tutors}
         tutees={tutees}
-        onSuccess={() => {
-          void fetchAll()
-        }}
+        onSuccess={invalidateAssignments}
       />
+
+      <AlertDialog open={matchConfirmOpen} onOpenChange={setMatchConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Run matching with pending applications?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2 text-muted-foreground text-sm">
+                <p>
+                  You have{" "}
+                  {pendingTutorCount > 0 && pendingTuteeCount > 0 ? (
+                    <>
+                      <strong className="text-foreground">
+                        {pendingTutorCount} {pendingTutorCount === 1 ? "tutor" : "tutors"}
+                      </strong>{" "}
+                      and{" "}
+                      <strong className="text-foreground">
+                        {pendingTuteeCount} {pendingTuteeCount === 1 ? "tutee" : "tutees"}
+                      </strong>
+                    </>
+                  ) : pendingTutorCount > 0 ? (
+                    <strong className="text-foreground">
+                      {pendingTutorCount} {pendingTutorCount === 1 ? "tutor" : "tutors"}
+                    </strong>
+                  ) : (
+                    <strong className="text-foreground">
+                      {pendingTuteeCount} {pendingTuteeCount === 1 ? "tutee" : "tutees"}
+                    </strong>
+                  )}{" "}
+                  in Pending status. They will not be included in matching unless you change their status
+                  to Accepted.
+                </p>
+                <p>Are you sure you want to run matching?</p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                runMatchingJob()
+              }}
+            >
+              Yes
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

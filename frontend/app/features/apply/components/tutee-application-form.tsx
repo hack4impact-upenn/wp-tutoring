@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useMutation } from "@tanstack/react-query"
 import { useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
 import {
@@ -47,7 +48,6 @@ interface TuteeApplicationFormProps {
 
 export function TuteeApplicationForm({ initialData }: TuteeApplicationFormProps = {}) {
   const navigate = useNavigate()
-  const [submitting, setSubmitting] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [modalSuccess, setModalSuccess] = useState(false)
   const [modalMessage, setModalMessage] = useState("")
@@ -86,7 +86,24 @@ export function TuteeApplicationForm({ initialData }: TuteeApplicationFormProps 
     )
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  const submitMutation = useMutation({
+    mutationFn: createTutee,
+    onSuccess: () => {
+      setModalSuccess(true)
+      setModalMessage("Your tutee application has been submitted successfully!")
+      setModalOpen(true)
+    },
+    onError: (err) => {
+      console.error("[TuteeForm] Error:", err)
+      setModalSuccess(false)
+      setModalMessage(
+        err instanceof Error ? err.message : "Something went wrong. Please try again.",
+      )
+      setModalOpen(true)
+    },
+  })
+
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
 
     if (
@@ -109,39 +126,24 @@ export function TuteeApplicationForm({ initialData }: TuteeApplicationFormProps 
       return
     }
 
-    setSubmitting(true)
-    try {
-      await createTutee({
-        studentFirstName,
-        studentLastName,
-        studentAge: studentAge ? parseInt(studentAge) : 0,
-        studentGrade,
-        parentFirstName,
-        parentLastName,
-        parentEmail,
-        parentPhone,
-        availability,
-        format,
-        subjects,
-        genderPreference,
-        siblingNames,
-        siblingPreference,
-        previousTutorNames,
-        additionalNotes,
-      })
-      setModalSuccess(true)
-      setModalMessage("Your tutee application has been submitted successfully!")
-      setModalOpen(true)
-    } catch (err) {
-      console.error("[TuteeForm] Error:", err)
-      setModalSuccess(false)
-      setModalMessage(
-        err instanceof Error ? err.message : "Something went wrong. Please try again."
-      )
-      setModalOpen(true)
-    } finally {
-      setSubmitting(false)
-    }
+    submitMutation.mutate({
+      studentFirstName,
+      studentLastName,
+      studentAge: studentAge ? parseInt(studentAge) : 0,
+      studentGrade,
+      parentFirstName,
+      parentLastName,
+      parentEmail,
+      parentPhone,
+      availability,
+      format,
+      subjects,
+      genderPreference,
+      siblingNames,
+      siblingPreference,
+      previousTutorNames,
+      additionalNotes,
+    })
   }
 
   return (
@@ -435,9 +437,9 @@ export function TuteeApplicationForm({ initialData }: TuteeApplicationFormProps 
         type="submit"
         size="lg"
         className="w-full font-semibold"
-        disabled={submitting}
+        disabled={submitMutation.isPending}
       >
-        {submitting ? (
+        {submitMutation.isPending ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             Submitting...

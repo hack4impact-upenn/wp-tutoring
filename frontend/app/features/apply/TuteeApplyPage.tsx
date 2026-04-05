@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useMutation } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -10,29 +11,30 @@ import type { TuteeApplication } from "@/lib/types"
 
 export function TuteeApplyPage() {
   const [parentEmail, setParentEmail] = useState("")
-  const [looking, setLooking] = useState(false)
   const [started, setStarted] = useState(false)
   const [existingData, setExistingData] = useState<Partial<TuteeApplication> | undefined>(undefined)
 
-  async function handleLookup(e: React.FormEvent) {
-    e.preventDefault()
-    if (!parentEmail.trim()) return
-
-    setLooking(true)
-    try {
-      const existing = await lookupTuteeByParentEmail(parentEmail.trim())
+  const lookupMutation = useMutation({
+    mutationFn: (email: string) => lookupTuteeByParentEmail(email),
+    onSuccess: (existing, email) => {
       if (existing) {
         setExistingData(existing)
       } else {
-        setExistingData({ parentEmail: parentEmail.trim() })
+        setExistingData({ parentEmail: email })
       }
       setStarted(true)
-    } catch {
-      setExistingData({ parentEmail: parentEmail.trim() })
+    },
+    onError: (_, email) => {
+      setExistingData({ parentEmail: email })
       setStarted(true)
-    } finally {
-      setLooking(false)
-    }
+    },
+  })
+
+  function handleLookup(e: React.FormEvent) {
+    e.preventDefault()
+    const email = parentEmail.trim()
+    if (!email) return
+    lookupMutation.mutate(email)
   }
 
   function handleStartFresh() {
@@ -79,9 +81,9 @@ export function TuteeApplyPage() {
             <Button
               type="submit"
               className="w-full"
-              disabled={!parentEmail.trim() || looking}
+              disabled={!parentEmail.trim() || lookupMutation.isPending}
             >
-              {looking ? (
+              {lookupMutation.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Looking up...

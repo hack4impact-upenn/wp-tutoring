@@ -8,7 +8,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException
 
 from tutoring.common import accepted_for_matching_filter, current_semester, now_iso
-from tutoring.matching import SUBJECTS, run_matching_cpsat
+from tutoring.matching import SUBJECTS, pair_allowed_hard, pair_weight, run_matching_cpsat
 from tutoring.mongo import get_db
 from tutoring.structures.documents import (
     normalize_tutee_doc,
@@ -17,6 +17,7 @@ from tutoring.structures.documents import (
 )
 from tutoring.structures.schemas import (
     LastSemesterPairsPayload,
+    IndividualMatchPayload,
     OverridePayload,
     ReassignMatchPayload,
     RunMatchingPayload,
@@ -75,6 +76,101 @@ def list_assignments(semester: str | None = None) -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+@router.post("/api/assignments/individual-match")
+def individual_match(
+    payload: IndividualMatchPayload,
+    _admin: dict[str, str] = Depends(get_current_admin),
+) -> dict[str, Any]:
+    """Pairwise soft score and hard eligibility for individual-match preview (same rules as CP-SAT edges)."""
+    db = get_db()
+    resolved_sem = payload.semester or current_semester()
+    tmp_rows: list[dict[str, Any]] = []
+
+    if payload.fixed_tutor_id:
+        try:
+            anchor_oid = ObjectId(str(payload.fixed_tutor_id).strip())
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid fixed_tutor_id") from exc
+        raw_anchor = db.tutorApplications.find_one({"_id": anchor_oid})
+        if not raw_anchor:
+            raise HTTPException(status_code=404, detail="Tutor not found")
+        anchor_tutor = normalize_tutor_doc(dict(raw_anchor))
+
+        for cid in payload.candidate_tutee_ids:
+            cs = str(cid).strip()
+            if not cs:
+                continue
+            try:
+                coid = ObjectId(cs)
+            except Exception:
+                continue
+            raw_c = db.tuteeApplications.find_one({"_id": coid})
+            if not raw_c:
+                continue
+            tutee_d = normalize_tutee_doc(dict(raw_c))
+            eligible = pair_allowed_hard(anchor_tutor, tutee_d)
+            soft = pair_weight(anchor_tutor, tutee_d)
+            name = (
+                f"{raw_c.get('studentFirstName', '')} {raw_c.get('studentLastName', '')}".strip() or "—"
+            )
+            email = str(raw_c.get("parentEmail") or "")
+            tmp_rows.append(
+                {
+                    "id": cs,
+                    "name": name,
+                    "email": email,
+                    "eligible": eligible,
+                    "correlation_points": soft if eligible else None,
+                    "current_tutee_count": None,
+                    "_soft": soft,
+                }
+            )
+    elif payload.fixed_tutee_id:
+        try:
+            anchor_oid = ObjectId(str(payload.fixed_tutee_id).strip())
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid fixed_tutee_id") from exc
+        raw_anchor = db.tuteeApplications.find_one({"_id": anchor_oid})
+        if not raw_anchor:
+            raise HTTPException(status_code=404, detail="Tutee not found")
+        anchor_tutee = normalize_tutee_doc(dict(raw_anchor))
+
+        for cid in payload.candidate_tutor_ids:
+            cs = str(cid).strip()
+            if not cs:
+                continue
+            try:
+                coid = ObjectId(cs)
+            except Exception:
+                continue
+            raw_c = db.tutorApplications.find_one({"_id": coid})
+            if not raw_c:
+                continue
+            tutor_d = normalize_tutor_doc(dict(raw_c))
+            eligible = pair_allowed_hard(tutor_d, anchor_tutee)
+            soft = pair_weight(tutor_d, anchor_tutee)
+            name = f"{raw_c.get('firstName', '')} {raw_c.get('lastName', '')}".strip() or "—"
+            email = str(raw_c.get("email") or "")
+            tutee_count = db.matches.count_documents(
+                {"tutor_id": coid, "semester": resolved_sem, "status": "active"},
+            )
+            tmp_rows.append(
+                {
+                    "id": cs,
+                    "name": name,
+                    "email": email,
+                    "eligible": eligible,
+                    "correlation_points": soft if eligible else None,
+                    "current_tutee_count": tutee_count,
+                    "_soft": soft,
+                }
+            )
+
+    tmp_rows.sort(key=lambda r: (0 if r["eligible"] else 1, -r["_soft"]))
+    candidates = [{k: v for k, v in r.items() if k != "_soft"} for r in tmp_rows]
+    return {"candidates": candidates}
 
 
 @router.post("/api/run-matching")

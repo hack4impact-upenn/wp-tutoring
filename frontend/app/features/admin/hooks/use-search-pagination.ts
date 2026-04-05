@@ -29,7 +29,7 @@ export function useSearchPagination<T>({
 
   useEffect(() => {
     setPage(1)
-  }, [search, dataRevision, activeTab])
+  }, [search, dataRevision, activeTab, ...filterDeps])
 
   const filtered = useMemo(
     () =>

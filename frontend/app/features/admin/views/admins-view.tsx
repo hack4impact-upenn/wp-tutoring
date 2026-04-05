@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react"
+import { useState } from "react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -20,69 +21,99 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import {
-  getAdminToken,
   getAdmins,
   inviteAdmin,
   deleteAdminInvite,
   APIError,
   type AdminRow,
 } from "@/lib/api"
+import { adminKeys } from "@/lib/query-keys"
+import { useAuth } from "@/features/auth/AuthContext"
 import { toast } from "sonner"
 import { Loader2, Shield, Copy, MailWarning, Trash2 } from "lucide-react"
 import { ExportDropdown, exportAdminsCsv, exportAdminsXls } from "../components/export"
 
 export type AdminsViewProps = {
   isActive: boolean
-  /** Increment when parent reloads dashboard data (initial load, Refresh, matching) */
-  dataRevision: number
-  onAdminCountChange?: (count: number) => void
 }
 
-export function AdminsView({ isActive, dataRevision, onAdminCountChange }: AdminsViewProps) {
-  const [admins, setAdmins] = useState<AdminRow[]>([])
-  const [adminsLoading, setAdminsLoading] = useState(false)
+export function AdminsView({ isActive }: AdminsViewProps) {
+  const queryClient = useQueryClient()
+  const { adminToken } = useAuth()
   const [inviteName, setInviteName] = useState("")
   const [inviteEmail, setInviteEmail] = useState("")
-  const [inviting, setInviting] = useState(false)
   const [manualInviteUrl, setManualInviteUrl] = useState<string | null>(null)
-  const [deletingInviteId, setDeletingInviteId] = useState<string | null>(null)
 
-  const fetchAdmins = useCallback(async (opts?: { silent?: boolean }) => {
-    const token = getAdminToken()
-    if (!token) return
-    const silent = opts?.silent === true
-    if (!silent) setAdminsLoading(true)
-    try {
-      const rows = await getAdmins(token)
-      if (Array.isArray(rows)) {
-        setAdmins(rows)
-      } else if (!silent) {
-        setAdmins([])
+  const adminsQuery = useQuery({
+    queryKey: adminKeys.adminsList(),
+    queryFn: async () => {
+      if (!adminToken) return [] as AdminRow[]
+      const rows = await getAdmins(adminToken)
+      return Array.isArray(rows) ? rows : []
+    },
+    enabled: isActive && !!adminToken,
+    retry: false,
+  })
+
+  const admins = adminsQuery.data ?? []
+  const adminsLoading = adminsQuery.isPending && isActive
+
+  const inviteMutation = useMutation({
+    mutationFn: async ({ name, email }: { name: string; email: string }) => {
+      if (!adminToken) throw new Error("no_token")
+      return inviteAdmin({ name, email }, adminToken)
+    },
+    onSuccess: (res, { email }) => {
+      setManualInviteUrl(null)
+      console.info("[admin invite] API response", {
+        emailSent: res.emailSent,
+        hasInviteUrl: Boolean(res.inviteUrl),
+        recipient: email.trim(),
+        adminId: res._id,
+        hint: res.emailSent
+          ? "Check inbox/spam for the recipient."
+          : "Server did not report a sent message — see terminal where uvicorn runs (look for invite_email:).",
+      })
+      if (res.emailSent) {
+        toast.success("Invitation email sent.")
+      } else if (res.inviteUrl) {
+        setManualInviteUrl(res.inviteUrl)
+        toast("Invite saved — email not sent", {
+          description: "Use the yellow box above to copy the signup link.",
+        })
+      } else {
+        toast.success("Invitation saved.")
       }
-    } catch (err) {
-      if (!silent) {
-        toast.error(err instanceof APIError ? err.message : "Failed to load admins.")
+      setInviteName("")
+      setInviteEmail("")
+      void queryClient.invalidateQueries({ queryKey: adminKeys.adminsList() })
+    },
+    onError: (err) => {
+      if (err instanceof Error && err.message === "no_token") {
+        toast.error("You need a valid admin session to send invitations.")
+        return
       }
-    } finally {
-      if (!silent) setAdminsLoading(false)
-    }
-  }, [])
+      toast.error(err instanceof APIError ? err.message : "Failed to send invitation.")
+    },
+  })
 
-  useEffect(() => {
-    onAdminCountChange?.(admins.length)
-  }, [admins, onAdminCountChange])
-
-  useEffect(() => {
-    if (!isActive) return
-    void fetchAdmins()
-  }, [isActive, fetchAdmins])
-
-  useEffect(() => {
-    if (dataRevision < 1) return
-    const token = getAdminToken()
-    if (!token) return
-    void fetchAdmins({ silent: true })
-  }, [dataRevision, fetchAdmins])
+  const deleteInviteMutation = useMutation({
+    mutationFn: async (adminId: string) => {
+      if (!adminToken) throw new Error("no_token")
+      await deleteAdminInvite(adminId, adminToken)
+    },
+    onSuccess: () => {
+      toast.success("Invitation removed.")
+      void queryClient.invalidateQueries({ queryKey: adminKeys.adminsList() })
+    },
+    onError: (err) => {
+      if (err instanceof Error && err.message === "no_token") {
+        toast.error("Sign in again to manage invitations.")
+        return
+      }
+      toast.error(err instanceof APIError ? err.message : "Failed to remove invitation.")
+    },
+  })
 
   return (
     <Card>
@@ -114,7 +145,7 @@ export function AdminsView({ isActive, dataRevision, onAdminCountChange }: Admin
       <CardContent className="space-y-8">
         {manualInviteUrl ? (
           <Alert className="border-amber-500/50 bg-amber-500/10">
-            <MailWarning className="text-amber-800 dark:text-amber-200" />
+            <MailWarning className="h-5 w-5 text-amber-800 dark:text-amber-200" />
             <AlertTitle>No email was sent from the server</AlertTitle>
             <AlertDescription className="space-y-3">
               <p>
@@ -153,50 +184,13 @@ export function AdminsView({ isActive, dataRevision, onAdminCountChange }: Admin
             className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-end"
             onSubmit={(e) => {
               e.preventDefault()
-              const token = getAdminToken()
-              if (!token) {
-                toast.error("You need a valid admin session to send invitations.")
-                return
-              }
               const name = inviteName.trim()
               const email = inviteEmail.trim()
               if (!name || !email) {
                 toast.error("Enter name and email.")
                 return
               }
-              setInviting(true)
-              void (async () => {
-                try {
-                  const res = await inviteAdmin({ name, email }, token)
-                  console.info("[admin invite] API response", {
-                    emailSent: res.emailSent,
-                    hasInviteUrl: Boolean(res.inviteUrl),
-                    recipient: email.trim(),
-                    adminId: res._id,
-                    hint: res.emailSent
-                      ? "Check inbox/spam for the recipient."
-                      : "Server did not report a sent message — see terminal where uvicorn runs (look for invite_email:).",
-                  })
-                  setManualInviteUrl(null)
-                  if (res.emailSent) {
-                    toast.success("Invitation email sent.")
-                  } else if (res.inviteUrl) {
-                    setManualInviteUrl(res.inviteUrl)
-                    toast("Invite saved — email not sent", {
-                      description: "Use the yellow box above to copy the signup link.",
-                    })
-                  } else {
-                    toast.success("Invitation saved.")
-                  }
-                  setInviteName("")
-                  setInviteEmail("")
-                  await fetchAdmins()
-                } catch (err) {
-                  toast.error(err instanceof APIError ? err.message : "Failed to send invitation.")
-                } finally {
-                  setInviting(false)
-                }
-              })()
+              inviteMutation.mutate({ name, email })
             }}
           >
             <div className="min-w-0 flex-1 space-y-2 sm:min-w-[12rem]">
@@ -220,8 +214,8 @@ export function AdminsView({ isActive, dataRevision, onAdminCountChange }: Admin
                 placeholder="email@school.edu"
               />
             </div>
-            <Button type="submit" disabled={inviting}>
-              {inviting ? (
+            <Button type="submit" disabled={inviteMutation.isPending}>
+              {inviteMutation.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Sending…
@@ -237,7 +231,18 @@ export function AdminsView({ isActive, dataRevision, onAdminCountChange }: Admin
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
-        ) : !getAdminToken() ? (
+        ) : adminsQuery.isError ? (
+          <div className="flex flex-col items-center gap-3 py-6">
+            <p className="max-w-md text-center text-sm text-destructive">
+              {adminsQuery.error instanceof APIError
+                ? adminsQuery.error.message
+                : "Could not load the administrator list."}
+            </p>
+            <Button type="button" variant="outline" size="sm" onClick={() => void adminsQuery.refetch()}>
+              Try again
+            </Button>
+          </div>
+        ) : !adminToken ? (
           <p className="py-6 text-center text-muted-foreground">
             Sign in through the app sign-in page so your session includes an API token; then you can list and
             invite administrators.
@@ -258,6 +263,7 @@ export function AdminsView({ isActive, dataRevision, onAdminCountChange }: Admin
               <TableBody>
                 {admins.map((a) => {
                   const accountStatusLabel = a.accountStatus === "invited" ? "Invited" : "Created"
+                  const removeId = String(a._id)
                   return (
                     <TableRow key={a._id}>
                       <TableCell className="font-medium">{a.name}</TableCell>
@@ -283,9 +289,9 @@ export function AdminsView({ isActive, dataRevision, onAdminCountChange }: Admin
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                            disabled={deletingInviteId === String(a._id)}
+                            disabled={deleteInviteMutation.isPending && deleteInviteMutation.variables === removeId}
                             title="Remove invitation"
-                            onClick={async (e) => {
+                            onClick={(e) => {
                               e.preventDefault()
                               e.stopPropagation()
                               if (
@@ -295,28 +301,10 @@ export function AdminsView({ isActive, dataRevision, onAdminCountChange }: Admin
                               ) {
                                 return
                               }
-                              const tok = getAdminToken()
-                              if (!tok) {
-                                toast.error("Sign in again to manage invitations.")
-                                return
-                              }
-                              const removeId = String(a._id)
-                              setDeletingInviteId(removeId)
-                              try {
-                                await deleteAdminInvite(removeId, tok)
-                                setAdmins((prev) => prev.filter((row) => String(row._id) !== removeId))
-                                toast.success("Invitation removed.")
-                                void fetchAdmins({ silent: true })
-                              } catch (err) {
-                                toast.error(
-                                  err instanceof APIError ? err.message : "Failed to remove invitation.",
-                                )
-                              } finally {
-                                setDeletingInviteId(null)
-                              }
+                              deleteInviteMutation.mutate(removeId)
                             }}
                           >
-                            {deletingInviteId === String(a._id) ? (
+                            {deleteInviteMutation.isPending && deleteInviteMutation.variables === removeId ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
                             ) : (
                               <Trash2 className="h-4 w-4" />

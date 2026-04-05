@@ -20,6 +20,7 @@ import type { Tutor, Tutee } from "../types"
 import { NameSearchInput, PaginationControls } from "./dashboard-shared"
 import { resolveAssignmentNames } from "../helpers"
 import { ExportDropdown, exportMatchesCsv, exportMatchesXls } from "../components/export"
+import { ArrowLeftRight, GitCompare } from "lucide-react"
 
 export type MatchesViewProps = {
   assignments: AssignmentRow[]
@@ -57,8 +58,9 @@ export function MatchesView({
         <div>
           <CardTitle>Matches</CardTitle>
           <CardDescription>
-            Active pairs for the current semester. Use &quot;See more information&quot; for scores and details;
-            &quot;Modify&quot; to change tutor or student (admin only).
+            Active pairs for the current semester. Use &quot;Show similarities&quot; to compare tutor and student
+            applications side by side; &quot;Change match&quot; to replace the tutor or the student on a row
+            (admin only).
           </CardDescription>
         </div>
         {assignments.length > 0 && (
@@ -92,8 +94,8 @@ export function MatchesView({
                       <TableRow>
                         <TableHead>Tutor</TableHead>
                         <TableHead>Student</TableHead>
-                        <TableHead className="w-[1%] whitespace-nowrap">See more information</TableHead>
-                        <TableHead className="w-[1%] whitespace-nowrap">Modify</TableHead>
+                        <TableHead className="min-w-[8.5rem] whitespace-nowrap">See similarities</TableHead>
+                        <TableHead className="min-w-[8.5rem] whitespace-nowrap">Change match</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -115,9 +117,11 @@ export function MatchesView({
                                 variant="outline"
                                 size="sm"
                                 type="button"
+                                className="h-7 gap-1 border-primary/40 bg-background px-2.5 text-xs font-medium text-foreground shadow-none hover:border-primary/60 hover:bg-primary/10 hover:text-foreground"
                                 onClick={() => onOpenMatchDetail(a)}
                               >
-                                See more information
+                                <GitCompare className="size-3.5 shrink-0 text-primary" aria-hidden />
+                                Show similarities
                               </Button>
                             </TableCell>
                             <TableCell>
@@ -125,9 +129,11 @@ export function MatchesView({
                                 variant="outline"
                                 size="sm"
                                 type="button"
+                                className="h-7 gap-1 border-primary/40 bg-background px-2.5 text-xs font-medium text-foreground shadow-none hover:border-primary/60 hover:bg-primary/10 hover:text-foreground"
                                 onClick={() => onOpenModifyMatch(a)}
                               >
-                                Modify
+                                <ArrowLeftRight className="size-3.5 shrink-0 text-primary" aria-hidden />
+                                Change match
                               </Button>
                             </TableCell>
                           </TableRow>

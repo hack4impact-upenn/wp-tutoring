@@ -9,7 +9,7 @@ export function SignInPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn, isAuthenticated, user, loading: authLoading } = useAuth();
+  const { signIn, isAuthenticated, user, loading: authLoading, signInPending } = useAuth();
   const navigate = useNavigate();
 
   if (authLoading) {
@@ -27,8 +27,6 @@ export function SignInPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setLoading(true);
-
     try {
       await signIn(email, password);
       navigate('/admin-dashboard');
@@ -38,8 +36,6 @@ export function SignInPage() {
           ? err.message
           : 'Invalid email or password'
       );
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -89,9 +85,9 @@ export function SignInPage() {
             <Button
               type="submit"
               className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
-              disabled={loading}
+              disabled={signInPending}
             >
-              {loading ? (
+              {signInPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Signing in...

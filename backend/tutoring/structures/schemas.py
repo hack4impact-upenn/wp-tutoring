@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 
 class TutorPayload(BaseModel):
@@ -106,3 +106,21 @@ class ReassignMatchPayload(BaseModel):
 
 class LastSemesterPairsPayload(BaseModel):
     pairs: list[dict[str, str]]
+
+
+class IndividualMatchPayload(BaseModel):
+    """Preview pairwise matcher scores for an individual admin pairing (same rules as CP-SAT edges)."""
+
+    fixed_tutor_id: str | None = None
+    fixed_tutee_id: str | None = None
+    candidate_tutor_ids: list[str] = Field(default_factory=list)
+    candidate_tutee_ids: list[str] = Field(default_factory=list)
+    semester: str | None = None
+
+    @model_validator(mode="after")
+    def exactly_one_anchor(self) -> IndividualMatchPayload:
+        has_tutor = bool(self.fixed_tutor_id and str(self.fixed_tutor_id).strip())
+        has_tutee = bool(self.fixed_tutee_id and str(self.fixed_tutee_id).strip())
+        if has_tutor == has_tutee:
+            raise ValueError("Exactly one of fixed_tutor_id or fixed_tutee_id must be provided")
+        return self

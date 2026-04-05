@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useMutation } from "@tanstack/react-query"
 import { useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -38,7 +39,6 @@ interface TutorApplicationFormProps {
 
 export function TutorApplicationForm({ initialData }: TutorApplicationFormProps = {}) {
   const navigate = useNavigate()
-  const [submitting, setSubmitting] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [modalSuccess, setModalSuccess] = useState(false)
   const [modalMessage, setModalMessage] = useState("")
@@ -68,7 +68,24 @@ export function TutorApplicationForm({ initialData }: TutorApplicationFormProps 
     )
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  const submitMutation = useMutation({
+    mutationFn: createTutor,
+    onSuccess: () => {
+      setModalSuccess(true)
+      setModalMessage("Your tutor application has been submitted successfully!")
+      setModalOpen(true)
+    },
+    onError: (err) => {
+      console.error("[TutorForm] Error:", err)
+      setModalSuccess(false)
+      setModalMessage(
+        err instanceof Error ? err.message : "Something went wrong. Please try again.",
+      )
+      setModalOpen(true)
+    },
+  })
+
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
 
     if (!firstName || !lastName || !email || !year) {
@@ -88,35 +105,20 @@ export function TutorApplicationForm({ initialData }: TutorApplicationFormProps 
       return
     }
 
-    setSubmitting(true)
-    try {
-      await createTutor({
-        firstName,
-        lastName,
-        email,
-        pennId,
-        phone,
-        year,
-        availability,
-        format,
-        subjects,
-        ageRanges,
-        previousTuteeNames,
-        additionalNotes,
-      })
-      setModalSuccess(true)
-      setModalMessage("Your tutor application has been submitted successfully!")
-      setModalOpen(true)
-    } catch (err) {
-      console.error("[TutorForm] Error:", err)
-      setModalSuccess(false)
-      setModalMessage(
-        err instanceof Error ? err.message : "Something went wrong. Please try again."
-      )
-      setModalOpen(true)
-    } finally {
-      setSubmitting(false)
-    }
+    submitMutation.mutate({
+      firstName,
+      lastName,
+      email,
+      pennId,
+      phone,
+      year,
+      availability,
+      format,
+      subjects,
+      ageRanges,
+      previousTuteeNames,
+      additionalNotes,
+    })
   }
 
   return (
@@ -323,8 +325,8 @@ export function TutorApplicationForm({ initialData }: TutorApplicationFormProps 
         </CardContent>
       </Card>
 
-      <Button type="submit" size="lg" className="w-full font-semibold" disabled={submitting}>
-        {submitting ? (
+      <Button type="submit" size="lg" className="w-full font-semibold" disabled={submitMutation.isPending}>
+        {submitMutation.isPending ? (
           <>
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             Submitting...

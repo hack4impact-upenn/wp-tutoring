@@ -238,7 +238,13 @@ def admin_login(payload: AdminLoginPayload) -> dict[str, Any]:
     db = get_db()
     admin = db.admins.find_one({"email": payload.email.strip().lower()})
     if not admin:
-        raise HTTPException(status_code=401, detail="No account found with this email")
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                "No administrator account exists for this address. "
+                "Request an invitation from an existing administrator."
+            ),
+        )
     if admin.get("accountStatus") == "invited":
         raise HTTPException(
             status_code=401,

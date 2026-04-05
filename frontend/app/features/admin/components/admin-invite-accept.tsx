@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import { useMutation } from "@tanstack/react-query"
 import { Link, useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,7 +22,6 @@ export function AdminInviteAcceptForm() {
   const { signOut, setAdminSession } = useAuth()
   const [password, setPassword] = useState("")
   const [confirm, setConfirm] = useState("")
-  const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState("")
   /** Set when the invite was already completed — show as informational text, not a hard error. */
   const [alreadyCreatedNotice, setAlreadyCreatedNotice] = useState("")
@@ -40,7 +40,23 @@ export function AdminInviteAcceptForm() {
     return new URLSearchParams(window.location.search).get("token")?.trim() ?? ""
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const completeMutation = useMutation({
+    mutationFn: ({ token, password }: { token: string; password: string }) =>
+      completeAdminInvite({ token, password }),
+    onSuccess: (result) => {
+      setAdminSession(result.token, result.admin)
+      navigate("/admin-dashboard", { replace: true })
+    },
+    onError: (err) => {
+      if (err instanceof APIError && err.status === 409) {
+        setAlreadyCreatedNotice(err.message)
+      } else {
+        setFormError(err instanceof APIError ? err.message : "Could not complete invitation.")
+      }
+    },
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     setFormError("")
     setAlreadyCreatedNotice("")
@@ -57,20 +73,7 @@ export function AdminInviteAcceptForm() {
       setFormError("Passwords do not match.")
       return
     }
-    setSubmitting(true)
-    try {
-      const result = await completeAdminInvite({ token, password })
-      setAdminSession(result.token, result.admin)
-      navigate("/admin-dashboard", { replace: true })
-    } catch (err) {
-      if (err instanceof APIError && err.status === 409) {
-        setAlreadyCreatedNotice(err.message)
-      } else {
-        setFormError(err instanceof APIError ? err.message : "Could not complete invitation.")
-      }
-    } finally {
-      setSubmitting(false)
-    }
+    completeMutation.mutate({ token, password })
   }
 
   return (
@@ -92,7 +95,7 @@ export function AdminInviteAcceptForm() {
               your invitation email.
             </p>
           ) : (
-            <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="invite-password">Password</Label>
                 <Input
@@ -126,8 +129,8 @@ export function AdminInviteAcceptForm() {
                   required
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={submitting}>
-                {submitting ? (
+              <Button type="submit" className="w-full" disabled={completeMutation.isPending}>
+                {completeMutation.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Saving…
