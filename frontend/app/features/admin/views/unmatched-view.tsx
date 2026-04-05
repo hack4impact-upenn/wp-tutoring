@@ -59,6 +59,7 @@ export type UnmatchedViewProps = {
   dataRevision: number
   activeTab: string
   onAssignSuccess: () => void
+  draftId: string | null
 }
 
 export function UnmatchedView({
@@ -70,6 +71,7 @@ export function UnmatchedView({
   dataRevision,
   activeTab,
   onAssignSuccess,
+  draftId,
 }: UnmatchedViewProps) {
   const [roleFilter, setRoleFilter] = useState<"all" | "tutor" | "tutee">("all")
   const [assignOpen, setAssignOpen] = useState(false)
@@ -288,6 +290,7 @@ export function UnmatchedView({
         unmatchedTuteeIds={unmatchedTuteeIds}
         semester={assignmentSemester}
         onSuccess={onAssignSuccess}
+        draftId={draftId}
       />
     </Card>
   )

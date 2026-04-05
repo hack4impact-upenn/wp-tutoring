@@ -27,8 +27,12 @@ def age_ranges_to_grade_prefs(age_ranges: list[str]) -> list[str]:
     return sorted(set(out))
 
 
-def normalize_tutor_doc(doc: dict[str, Any]) -> dict[str, Any]:
-    """Backfill canonical CP-SAT fields for legacy records."""
+def normalize_tutor_doc(doc: dict[str, Any], draft_id: str | None = None) -> dict[str, Any]:
+    """Backfill canonical CP-SAT fields for legacy records.
+
+    When ``draft_id`` is set, ``applicationStatus`` reflects that draft's override
+    (``draftApplicationStatus[draft_id]``) if present, else the document's global status.
+    """
     out = dict(doc)
     out.setdefault("maxCapacity", 1)
     out.setdefault("tutorGender", "Unknown")
@@ -36,13 +40,20 @@ def normalize_tutor_doc(doc: dict[str, Any]) -> dict[str, Any]:
     out.setdefault("returningStudentIds", [])
     out.setdefault("subjectList", out.get("subjects") or [])
     out.setdefault("gradePrefs", age_ranges_to_grade_prefs(out.get("ageRanges") or []))
-    if "applicationStatus" not in out:
+    if draft_id:
+        overrides = out.get("draftApplicationStatus") or {}
+        if isinstance(overrides, dict) and draft_id in overrides:
+            out["applicationStatus"] = overrides[draft_id]
+    if "applicationStatus" not in out or out.get("applicationStatus") is None:
         out["applicationStatus"] = "accepted"
     return out
 
 
-def normalize_tutee_doc(doc: dict[str, Any]) -> dict[str, Any]:
-    """Backfill canonical CP-SAT fields for legacy records."""
+def normalize_tutee_doc(doc: dict[str, Any], draft_id: str | None = None) -> dict[str, Any]:
+    """Backfill canonical CP-SAT fields for legacy records.
+
+    When ``draft_id`` is set, ``applicationStatus`` reflects that draft's override if present.
+    """
     out = dict(doc)
     out.setdefault("requiredTutorId", None)
     out.setdefault("preferredTutorId", None)
@@ -52,7 +63,11 @@ def normalize_tutee_doc(doc: dict[str, Any]) -> dict[str, Any]:
     out.setdefault("subjectNeeds", out.get("subjects") or [])
     out.setdefault("grade", out.get("studentGrade") or "")
     out.setdefault("preferredTimeSlots", [])
-    if "applicationStatus" not in out:
+    if draft_id:
+        overrides = out.get("draftApplicationStatus") or {}
+        if isinstance(overrides, dict) and draft_id in overrides:
+            out["applicationStatus"] = overrides[draft_id]
+    if "applicationStatus" not in out or out.get("applicationStatus") is None:
         out["applicationStatus"] = "accepted"
     return out
 

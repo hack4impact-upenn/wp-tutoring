@@ -84,10 +84,17 @@ class SectionPayload(BaseModel):
 
 class ApplicationStatusPayload(BaseModel):
     applicationStatus: Literal["accepted", "pending", "waitlist"]
+    draft_id: str
+
+
+class BulkAcceptPayload(BaseModel):
+    draft_id: str
+    collection: Literal["tutors", "tutees"]
 
 
 class RunMatchingPayload(BaseModel):
     semester: str | None = None
+    draft_id: str
 
 
 class OverridePayload(BaseModel):
@@ -95,6 +102,7 @@ class OverridePayload(BaseModel):
     tutor_id: str
     student_id: str
     section_id: str | None = None
+    draft_id: str
 
 
 class ReassignMatchPayload(BaseModel):
@@ -102,6 +110,7 @@ class ReassignMatchPayload(BaseModel):
     tutor_id: str
     student_id: str
     semester: str | None = None
+    draft_id: str
 
 
 class LastSemesterPairsPayload(BaseModel):
@@ -116,6 +125,7 @@ class IndividualMatchPayload(BaseModel):
     candidate_tutor_ids: list[str] = Field(default_factory=list)
     candidate_tutee_ids: list[str] = Field(default_factory=list)
     semester: str | None = None
+    draft_id: str
 
     @model_validator(mode="after")
     def exactly_one_anchor(self) -> IndividualMatchPayload:
@@ -124,3 +134,18 @@ class IndividualMatchPayload(BaseModel):
         if has_tutor == has_tutee:
             raise ValueError("Exactly one of fixed_tutor_id or fixed_tutee_id must be provided")
         return self
+
+
+# ── Drafts ──────────────────────────────────────────────────────────
+
+class CreateDraftPayload(BaseModel):
+    name: str
+    semester: str | None = None
+
+
+class UpdateDraftPayload(BaseModel):
+    name: str
+
+
+class DuplicateDraftPayload(BaseModel):
+    name: str

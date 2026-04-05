@@ -48,10 +48,11 @@ export async function patchTutorStatus(
   tutorId: string,
   applicationStatus: ApplicationStatus,
   token: string,
+  draftId: string,
 ): Promise<TutorApplication> {
   return apiFetch<TutorApplication>(`/api/tutors/${encodeURIComponent(tutorId)}`, {
     method: "PATCH",
-    body: JSON.stringify({ applicationStatus }),
+    body: JSON.stringify({ applicationStatus, draft_id: draftId }),
     headers: { Authorization: `Bearer ${token}` },
   })
 }

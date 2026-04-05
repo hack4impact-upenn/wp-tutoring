@@ -31,6 +31,22 @@ def accepted_for_matching_filter() -> dict[str, Any]:
     return {"$or": [{"applicationStatus": "accepted"}, {"applicationStatus": {"$exists": False}}]}
 
 
+def accepted_for_matching_filter_for_draft(draft_oid: ObjectId) -> dict[str, Any]:
+    """Accepted for CP-SAT for a specific matching draft (per-draft status overrides legacy applicationStatus)."""
+    d = str(draft_oid)
+    return {
+        "$or": [
+            {f"draftApplicationStatus.{d}": "accepted"},
+            {
+                "$and": [
+                    {f"draftApplicationStatus.{d}": {"$exists": False}},
+                    {"$or": [{"applicationStatus": "accepted"}, {"applicationStatus": {"$exists": False}}]},
+                ],
+            },
+        ],
+    }
+
+
 def admin_account_status(doc: dict[str, Any]) -> Literal["invited", "created"]:
     explicit = doc.get("accountStatus")
     if explicit == "invited":
@@ -59,23 +75,33 @@ def oid_or_400(raw: str, *, detail: str) -> ObjectId:
         raise HTTPException(status_code=400, detail=detail) from exc
 
 
-def patch_application_status(
+def patch_application_status_for_draft(
     collection: Collection,
     oid: ObjectId,
+    draft_hex: str,
     application_status: str,
     *,
-    normalize: Callable[[dict[str, Any]], dict[str, Any]],
+    normalize: Callable[[dict[str, Any], str | None], dict[str, Any]],
     not_found_detail: str,
 ) -> dict[str, Any]:
+    """Set status for one tutor/tutee within one matching draft (does not change global applicationStatus)."""
     from tutoring.structures.documents import serialize
 
+    field = f"draftApplicationStatus.{draft_hex}"
     result = collection.update_one(
         {"_id": oid},
-        {"$set": {"applicationStatus": application_status, "updatedAt": now_iso()}},
+        {"$set": {field: application_status, "updatedAt": now_iso()}},
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail=not_found_detail)
     updated = collection.find_one({"_id": oid})
     if not updated:
         raise HTTPException(status_code=404, detail=not_found_detail)
-    return serialize(normalize(dict(updated)))
+    return serialize(normalize(dict(updated), draft_hex))
+
+
+def mark_all_applications_pending_for_draft(db: Any, draft_oid: ObjectId) -> None:
+    """Set per-draft application status to pending on every tutor and tutee for a new draft."""
+    key = f"draftApplicationStatus.{str(draft_oid)}"
+    db.tutorApplications.update_many({}, {"$set": {key: "pending"}})
+    db.tuteeApplications.update_many({}, {"$set": {key: "pending"}})

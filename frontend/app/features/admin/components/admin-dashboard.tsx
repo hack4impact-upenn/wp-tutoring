@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useState } from "react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import {
   AlertDialog,
@@ -20,10 +20,13 @@ import {
 } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
-  getTutors,
-  getTutees,
-  getAssignments,
+  acceptAll,
+  getAdminWorkspace,
   getAdmins,
+  createDraft,
+  renameDraft,
+  deleteDraft,
+  duplicateDraft,
   runMatching,
   patchTutorStatus,
   patchTuteeStatus,
@@ -33,7 +36,7 @@ import {
 } from "@/lib/api"
 import { adminKeys } from "@/lib/query-keys"
 import { useAuth } from "@/features/auth/AuthContext"
-import type { ApplicationStatus } from "@/lib/types"
+import type { AdminWorkspacePayload, ApplicationStatus } from "@/lib/types"
 import { toast } from "sonner"
 import {
   Users,
@@ -48,6 +51,7 @@ import { getId } from "../types"
 import { ApplicationProfileDialog } from "./application-profile-dialog"
 import { MatchDetailDialog } from "./match-detail-dialog"
 import { ChangeMatchDialog } from "./change-match-dialog"
+import { DraftSelector } from "./draft-selector"
 import { TutorsView } from "../views/tutors-view"
 import { TuteesView } from "../views/tutees-view"
 import { MatchesView } from "../views/matches-view"
@@ -57,6 +61,7 @@ import { AdminsView } from "../views/admins-view"
 export function AdminDashboard() {
   const queryClient = useQueryClient()
   const { adminToken } = useAuth()
+  const [selectedDraftId, setSelectedDraftId] = useState<string | null>(null)
   const [lastMatchResult, setLastMatchResult] = useState<RunMatchingResult | null>(null)
   const [activeTab, setActiveTab] = useState("tutors")
   const [profileOpen, setProfileOpen] = useState(false)
@@ -68,27 +73,100 @@ export function AdminDashboard() {
   const [modifyMatchAssignment, setModifyMatchAssignment] = useState<AssignmentRow | null>(null)
   const [matchConfirmOpen, setMatchConfirmOpen] = useState(false)
 
-  const tutorsQuery = useQuery({
-    queryKey: adminKeys.tutors(),
-    queryFn: async () => {
-      const d = await getTutors()
-      return Array.isArray(d) ? d : []
+  const workspaceDraftKey = selectedDraftId ?? ""
+
+  const workspaceQuery = useQuery({
+    queryKey: adminKeys.workspace(workspaceDraftKey),
+    queryFn: async (): Promise<AdminWorkspacePayload> => {
+      if (!adminToken) {
+        return { drafts: [], tutors: [], tutees: [], assignments: [], activeDraftId: null }
+      }
+      return getAdminWorkspace(adminToken, selectedDraftId || undefined)
+    },
+    enabled: !!adminToken,
+    placeholderData: keepPreviousData,
+  })
+
+  const ws = workspaceQuery.data
+  const drafts = ws?.drafts ?? []
+  const tutors = ws?.tutors ?? []
+  const tutees = ws?.tutees ?? []
+  const assignments = ws?.assignments ?? []
+  const activeDraftId = selectedDraftId ?? ws?.activeDraftId ?? null
+  const selectedDraft = activeDraftId ? drafts.find((d) => d._id === activeDraftId) ?? null : null
+
+  useEffect(() => {
+    if (drafts.length === 0) {
+      if (selectedDraftId) setSelectedDraftId(null)
+      return
+    }
+    if (selectedDraftId && !drafts.some((d) => d._id === selectedDraftId)) {
+      setSelectedDraftId(null)
+    }
+  }, [drafts, selectedDraftId])
+
+  const invalidateWorkspace = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: [...adminKeys.all, "workspace"] })
+  }, [queryClient])
+
+  const createDraftMutation = useMutation({
+    mutationFn: (name: string) => {
+      if (!adminToken) throw new Error("no_token")
+      return createDraft(name, adminToken)
+    },
+    onSuccess: (newDraft) => {
+      invalidateWorkspace()
+      setSelectedDraftId(newDraft._id)
+      toast.success(`Draft "${newDraft.name}" created`)
+    },
+    onError: (err) => {
+      toast.error(err instanceof APIError ? err.message : "Failed to create draft")
     },
   })
 
-  const tuteesQuery = useQuery({
-    queryKey: adminKeys.tutees(),
-    queryFn: async () => {
-      const d = await getTutees()
-      return Array.isArray(d) ? d : []
+  const renameDraftMutation = useMutation({
+    mutationFn: ({ draftId, name }: { draftId: string; name: string }) => {
+      if (!adminToken) throw new Error("no_token")
+      return renameDraft(draftId, name, adminToken)
+    },
+    onSuccess: () => {
+      invalidateWorkspace()
+      toast.success("Draft renamed")
+    },
+    onError: (err) => {
+      toast.error(err instanceof APIError ? err.message : "Failed to rename draft")
     },
   })
 
-  const assignmentsQuery = useQuery({
-    queryKey: adminKeys.assignments(),
-    queryFn: async () => {
-      const d = await getAssignments()
-      return Array.isArray(d) ? d : []
+  const deleteDraftMutation = useMutation({
+    mutationFn: (draftId: string) => {
+      if (!adminToken) throw new Error("no_token")
+      return deleteDraft(draftId, adminToken)
+    },
+    onSuccess: (_, deletedId) => {
+      invalidateWorkspace()
+      if (selectedDraftId === deletedId) setSelectedDraftId(null)
+      toast.success("Draft deleted")
+    },
+    onError: (err) => {
+      toast.error(err instanceof APIError ? err.message : "Failed to delete draft")
+    },
+  })
+
+  const duplicateDraftMutation = useMutation({
+    mutationFn: (draftId: string) => {
+      if (!adminToken) throw new Error("no_token")
+      const source = drafts.find((d) => d._id === draftId)
+      const name = source ? `${source.name} (copy)` : "Draft (copy)"
+      return duplicateDraft(draftId, name, adminToken)
+    },
+    onSuccess: (newDraft) => {
+      invalidateWorkspace()
+      setSelectedDraftId(newDraft._id)
+      toast.success(`Draft "${newDraft.name}" created`)
+    },
+    onError: (err) => {
+      toast.error(err instanceof APIError ? err.message : "Failed to duplicate draft")
     },
   })
 
@@ -106,42 +184,35 @@ export function AdminDashboard() {
     enabled: !!adminToken,
   })
 
-  const tutors = tutorsQuery.data ?? []
-  const tutees = tuteesQuery.data ?? []
-  const assignments = assignmentsQuery.data ?? []
-
-  const isInitialLoading =
-    tutorsQuery.isPending || tuteesQuery.isPending || assignmentsQuery.isPending
+  const isInitialLoading = !adminToken ? false : workspaceQuery.isPending
 
   const dataRevision = useMemo(
     () =>
-      (tutorsQuery.dataUpdatedAt || 0) +
-      (tuteesQuery.dataUpdatedAt || 0) +
-      (assignmentsQuery.dataUpdatedAt || 0) +
-      (adminsListQuery.dataUpdatedAt || 0),
-    [
-      tutorsQuery.dataUpdatedAt,
-      tuteesQuery.dataUpdatedAt,
-      assignmentsQuery.dataUpdatedAt,
-      adminsListQuery.dataUpdatedAt,
-    ],
+      (workspaceQuery.dataUpdatedAt || 0) + (adminsListQuery.dataUpdatedAt || 0),
+    [workspaceQuery.dataUpdatedAt, adminsListQuery.dataUpdatedAt],
   )
 
   const adminsTabCount = adminsListQuery.data?.length ?? 0
 
   const invalidateAssignments = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: adminKeys.assignments() })
-  }, [queryClient])
+    invalidateWorkspace()
+  }, [invalidateWorkspace])
 
   const runMatchMutation = useMutation({
-    mutationFn: () => runMatching({}),
+    mutationFn: () => {
+      const bundle = queryClient.getQueryData<AdminWorkspacePayload>(
+        adminKeys.workspace(selectedDraftId ?? ""),
+      )
+      const id = selectedDraftId ?? bundle?.activeDraftId
+      if (!id) throw new Error("no_draft")
+      return runMatching({ draftId: id })
+    },
     onSuccess: async (result) => {
       setLastMatchResult(result)
-      const next = await getAssignments(result.semester)
-      queryClient.setQueryData<AssignmentRow[]>(
-        adminKeys.assignments(),
-        Array.isArray(next) ? next : [],
-      )
+      if (adminToken) {
+        const fresh = await getAdminWorkspace(adminToken, selectedDraftId || undefined)
+        queryClient.setQueryData(adminKeys.workspace(workspaceDraftKey), fresh)
+      }
       const status = result.solverStatus || "UNKNOWN"
       if (status === "OPTIMAL" || status === "FEASIBLE") {
         toast.success(
@@ -165,23 +236,32 @@ export function AdminDashboard() {
   const pendingTuteeCount = tutees.filter((t) => t.applicationStatus === "pending").length
 
   const onRunMatchingClick = useCallback(() => {
+    if (!activeDraftId) {
+      toast.error("Please select or create a draft first.")
+      return
+    }
     if (pendingTutorCount > 0 || pendingTuteeCount > 0) {
       setMatchConfirmOpen(true)
       return
     }
     void runMatchingJob()
-  }, [pendingTutorCount, pendingTuteeCount, runMatchingJob])
+  }, [activeDraftId, pendingTutorCount, pendingTuteeCount, runMatchingJob])
 
   const patchTutorMutation = useMutation({
-    mutationFn: async ({ t, status }: { t: Tutor; status: ApplicationStatus }) => {
+    mutationFn: async ({
+      t,
+      status,
+      draftId,
+    }: {
+      t: Tutor
+      status: ApplicationStatus
+      draftId: string
+    }) => {
       if (!adminToken) throw new Error("no_token")
-      return patchTutorStatus(getId(t), status, adminToken)
+      return patchTutorStatus(getId(t), status, adminToken, draftId)
     },
-    onSuccess: (updated, { t }) => {
-      queryClient.setQueryData<Tutor[]>(adminKeys.tutors(), (prev) => {
-        const list = prev ?? []
-        return list.map((row) => (getId(row) === getId(t) ? { ...row, ...updated } : row))
-      })
+    onSuccess: () => {
+      invalidateWorkspace()
       toast.success("Status updated")
     },
     onError: (err) => {
@@ -194,15 +274,20 @@ export function AdminDashboard() {
   })
 
   const patchTuteeMutation = useMutation({
-    mutationFn: async ({ t, status }: { t: Tutee; status: ApplicationStatus }) => {
+    mutationFn: async ({
+      t,
+      status,
+      draftId,
+    }: {
+      t: Tutee
+      status: ApplicationStatus
+      draftId: string
+    }) => {
       if (!adminToken) throw new Error("no_token")
-      return patchTuteeStatus(getId(t), status, adminToken)
+      return patchTuteeStatus(getId(t), status, adminToken, draftId)
     },
-    onSuccess: (updated, { t }) => {
-      queryClient.setQueryData<Tutee[]>(adminKeys.tutees(), (prev) => {
-        const list = prev ?? []
-        return list.map((row) => (getId(row) === getId(t) ? { ...row, ...updated } : row))
-      })
+    onSuccess: () => {
+      invalidateWorkspace()
       toast.success("Status updated")
     },
     onError: (err) => {
@@ -214,15 +299,48 @@ export function AdminDashboard() {
     },
   })
 
+  const acceptAllMutation = useMutation({
+    mutationFn: (collection: "tutors" | "tutees") => {
+      if (!adminToken) throw new Error("no_token")
+      if (!activeDraftId) throw new Error("no_draft")
+      return acceptAll(collection, activeDraftId, adminToken)
+    },
+    onSuccess: (result, collection) => {
+      invalidateWorkspace()
+      toast.success(
+        `${result.modifiedCount} ${collection === "tutors" ? "tutor" : "tutee"}(s) accepted`,
+      )
+    },
+    onError: (err) => {
+      toast.error(err instanceof APIError ? err.message : "Failed to accept all")
+    },
+  })
+
+  const handleAcceptAllTutors = useCallback(() => {
+    if (!adminToken) { toast.error("You must be signed in."); return }
+    if (!activeDraftId) { toast.error("Select a draft first."); return }
+    acceptAllMutation.mutate("tutors")
+  }, [adminToken, activeDraftId, acceptAllMutation])
+
+  const handleAcceptAllTutees = useCallback(() => {
+    if (!adminToken) { toast.error("You must be signed in."); return }
+    if (!activeDraftId) { toast.error("Select a draft first."); return }
+    acceptAllMutation.mutate("tutees")
+  }, [adminToken, activeDraftId, acceptAllMutation])
+
   const handleTutorStatusChange = useCallback(
     (t: Tutor, status: ApplicationStatus) => {
       if (!adminToken) {
         toast.error("You must be signed in to update status.")
         return
       }
-      patchTutorMutation.mutate({ t, status })
+      if (!activeDraftId) {
+        toast.error("Select a draft before changing application status.")
+        return
+      }
+      patchTutorMutation.mutate({ t, status, draftId: activeDraftId })
     },
-    [adminToken, patchTutorMutation],
+    [adminToken, activeDraftId, patchTutorMutation],
   )
 
   const handleTuteeStatusChange = useCallback(
@@ -231,9 +349,13 @@ export function AdminDashboard() {
         toast.error("You must be signed in to update status.")
         return
       }
-      patchTuteeMutation.mutate({ t, status })
+      if (!activeDraftId) {
+        toast.error("Select a draft before changing application status.")
+        return
+      }
+      patchTuteeMutation.mutate({ t, status, draftId: activeDraftId })
     },
-    [adminToken, patchTuteeMutation],
+    [adminToken, activeDraftId, patchTuteeMutation],
   )
 
   const matchedStudentIds = new Set(
@@ -242,11 +364,10 @@ export function AdminDashboard() {
   const matchedTutorIds = new Set(assignments.map((a) => a.tutor_id).filter(Boolean) as string[])
   const unmatchedTutees = tutees.filter((t) => !matchedStudentIds.has(getId(t)))
   const unmatchedTutors = tutors.filter((t) => !matchedTutorIds.has(getId(t)))
-  const assignmentSemester = assignments[0]?.semester ?? null
+  const assignmentSemester = assignments[0]?.semester ?? selectedDraft?.semester ?? null
   const totalUnmatchedCount = unmatchedTutors.length + unmatchedTutees.length
 
-  const coreLoadFailed =
-    tutorsQuery.isError && tuteesQuery.isError && assignmentsQuery.isError && !isInitialLoading
+  const coreLoadFailed = workspaceQuery.isError && !isInitialLoading
 
   if (isInitialLoading) {
     return (
@@ -280,7 +401,11 @@ export function AdminDashboard() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" onClick={onRunMatchingClick} disabled={runMatchMutation.isPending}>
+          <Button
+            size="sm"
+            onClick={onRunMatchingClick}
+            disabled={runMatchMutation.isPending || !activeDraftId}
+          >
             {runMatchMutation.isPending ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
             ) : (
@@ -290,6 +415,18 @@ export function AdminDashboard() {
           </Button>
         </div>
       </div>
+
+      {/* Draft selector */}
+      <DraftSelector
+        drafts={drafts}
+        selectedDraftId={activeDraftId}
+        onSelect={setSelectedDraftId}
+        onCreateDraft={(name) => createDraftMutation.mutate(name)}
+        onDeleteDraft={(id) => deleteDraftMutation.mutate(id)}
+        onRenameDraft={(id, name) => renameDraftMutation.mutate({ draftId: id, name })}
+        onDuplicateDraft={(id) => duplicateDraftMutation.mutate(id)}
+        isLoading={workspaceQuery.isPending}
+      />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Card>
@@ -321,7 +458,7 @@ export function AdminDashboard() {
             </div>
             <div>
               <p className="text-2xl font-bold text-foreground">{assignments.length}</p>
-              <p className="text-xs text-muted-foreground">Matches (this semester)</p>
+              <p className="text-xs text-muted-foreground">Matches (this draft)</p>
             </div>
           </CardContent>
         </Card>
@@ -343,8 +480,8 @@ export function AdminDashboard() {
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Last run</CardTitle>
             <CardDescription>
-              Mode {lastMatchResult.matchingMode ?? "—"} · Semester {lastMatchResult.semester} · Solver{" "}
-              {lastMatchResult.solverStatus ?? "—"}
+              Mode {lastMatchResult.matchingMode ?? "---"} · Semester {lastMatchResult.semester} · Solver{" "}
+              {lastMatchResult.solverStatus ?? "---"}
               {lastMatchResult.assignedStudentCount != null &&
                 lastMatchResult.totalStudentCount != null &&
                 ` · Students ${lastMatchResult.assignedStudentCount}/${lastMatchResult.totalStudentCount} assigned`}
@@ -387,6 +524,7 @@ export function AdminDashboard() {
               setProfileOpen(true)
             }}
             onTutorStatusChange={handleTutorStatusChange}
+            onAcceptAll={handleAcceptAllTutors}
           />
         </TabsContent>
 
@@ -401,6 +539,7 @@ export function AdminDashboard() {
               setProfileOpen(true)
             }}
             onTuteeStatusChange={handleTuteeStatusChange}
+            onAcceptAll={handleAcceptAllTutees}
           />
         </TabsContent>
 
@@ -432,6 +571,7 @@ export function AdminDashboard() {
             dataRevision={dataRevision}
             activeTab={activeTab}
             onAssignSuccess={invalidateAssignments}
+            draftId={activeDraftId}
           />
         </TabsContent>
 
@@ -474,6 +614,7 @@ export function AdminDashboard() {
         tutors={tutors}
         tutees={tutees}
         onSuccess={invalidateAssignments}
+        draftId={activeDraftId}
       />
 
       <AlertDialog open={matchConfirmOpen} onOpenChange={setMatchConfirmOpen}>

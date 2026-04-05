@@ -35,6 +35,7 @@ export function IndividualMatchDialog({
   unmatchedTuteeIds,
   semester,
   onSuccess,
+  draftId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -47,13 +48,15 @@ export function IndividualMatchDialog({
   unmatchedTuteeIds: Set<string>
   semester: string | null
   onSuccess: () => void
+  draftId: string | null
 }) {
   const { adminToken } = useAuth()
 
   const overrideMutation = useMutation({
     mutationFn: async ({ tutorId, studentId }: { tutorId: string; studentId: string }) => {
       if (!adminToken) throw new Error("no_token")
-      await overrideAssignment({ tutorId, studentId, semester }, adminToken)
+      if (!draftId) throw new Error("no_draft")
+      await overrideAssignment({ tutorId, studentId, semester, draftId }, adminToken)
     },
     onSuccess: () => {
       toast.success("Match created")
@@ -70,16 +73,24 @@ export function IndividualMatchDialog({
   })
 
   const tutorOptions = useMemo(() => {
+    if (mode === "pick-tutor") {
+      // When assigning a tutor to a tutee, only show tutors that don't already have a tutee
+      return tutors.filter((t) => unmatchedTutorIds.has(getId(t)))
+    }
     return tutors.filter(
       (t) => isAccepted(t) || unmatchedTutorIds.has(getId(t)),
     )
-  }, [tutors, unmatchedTutorIds])
+  }, [tutors, unmatchedTutorIds, mode])
 
   const tuteeOptions = useMemo(() => {
+    if (mode === "pick-tutee") {
+      // When assigning a tutee to a tutor, only show tutees that don't already have a tutor
+      return tutees.filter((s) => unmatchedTuteeIds.has(getId(s)))
+    }
     return tutees.filter(
       (s) => isAccepted(s) || unmatchedTuteeIds.has(getId(s)),
     )
-  }, [tutees, unmatchedTuteeIds])
+  }, [tutees, unmatchedTuteeIds, mode])
 
   const candidateTuteeIds = useMemo(
     () => tuteeOptions.map((t) => getId(t)).filter(Boolean),
@@ -112,6 +123,7 @@ export function IndividualMatchDialog({
           tutors={tutors}
           tutees={tutees}
           semester={semester}
+          draftId={draftId}
           searchInputId="admin-individual-match-search"
           listTitle={title}
           helperText="Any other active assignment for the selected student this semester will be removed first. Rows are sorted by matcher correlation (eligible pairs first). Click a row to select."

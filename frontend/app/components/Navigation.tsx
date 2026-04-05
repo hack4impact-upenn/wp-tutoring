@@ -209,7 +209,7 @@ export function Navigation({ scrolled }: NavigationProps) {
           <div className="flex h-20 items-center justify-between">
             <Link to="/" className="flex items-center gap-3">
               <img src={logo} alt="WPTP Logo" className="h-12 w-auto" />
-              <h2 className="hidden text-xl font-semibold text-primary sm:block">West Philly Tutoring</h2>
+              <h2 className="hidden text-xl font-semibold text-primary lg:block">West Philly Tutoring</h2>
             </Link>
 
             <div className="hidden items-center gap-8 md:flex">

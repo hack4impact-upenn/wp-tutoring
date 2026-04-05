@@ -39,6 +39,7 @@ export type MatchCandidatePickerProps = {
   tutors: Tutor[]
   tutees: Tutee[]
   semester: string | null
+  draftId: string | null
   searchInputId: string
   listTitle: string
   helperText: string
@@ -58,6 +59,7 @@ export function MatchCandidatePicker({
   tutors,
   tutees,
   semester,
+  draftId,
   searchInputId,
   listTitle,
   helperText,
@@ -79,7 +81,7 @@ export function MatchCandidatePicker({
   const tuteeIdsKey = useMemo(() => [...candidateTuteeIds].sort().join(","), [candidateTuteeIds])
 
   const previewEnabled =
-    active && !!mode && (mode === "pick-tutee" ? Boolean(fixedTutorId) : Boolean(fixedTuteeId))
+    active && !!mode && !!draftId && (mode === "pick-tutee" ? Boolean(fixedTutorId) : Boolean(fixedTuteeId))
 
   const previewQuery = useQuery({
     queryKey: [
@@ -88,6 +90,7 @@ export function MatchCandidatePicker({
         fixedTutorId: mode === "pick-tutee" ? fixedTutorId : "",
         fixedTuteeId: mode === "pick-tutor" ? fixedTuteeId : "",
         semester: semester ?? "",
+        draftId: draftId ?? "",
         candidateTutorIds: tutorIdsKey,
         candidateTuteeIds: tuteeIdsKey,
       }),
@@ -99,12 +102,13 @@ export function MatchCandidatePicker({
         toast.error("You must be signed in.")
         return { candidates: [] as IndividualMatchCandidateRow[] }
       }
+      if (!draftId) return { candidates: [] as IndividualMatchCandidateRow[] }
       try {
         if (mode === "pick-tutee" && fixedTutor) {
           const fid = getId(fixedTutor)
           if (!fid) return { candidates: [] as IndividualMatchCandidateRow[] }
           return await previewIndividualMatch(
-            { fixed_tutor_id: fid, candidate_tutee_ids: candidateTuteeIds, semester },
+            { fixed_tutor_id: fid, candidate_tutee_ids: candidateTuteeIds, semester, draft_id: draftId },
             tok,
           )
         }
@@ -112,7 +116,7 @@ export function MatchCandidatePicker({
           const fid = getId(fixedTutee)
           if (!fid) return { candidates: [] as IndividualMatchCandidateRow[] }
           return await previewIndividualMatch(
-            { fixed_tutee_id: fid, candidate_tutor_ids: candidateTutorIds, semester },
+            { fixed_tutee_id: fid, candidate_tutor_ids: candidateTutorIds, semester, draft_id: draftId },
             tok,
           )
         }

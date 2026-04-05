@@ -1,13 +1,19 @@
-"""Sections, matching, assignments, and reference data."""
+"""Sections, matching, assignments, drafts, and reference data."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from tutoring.common import accepted_for_matching_filter, current_semester, now_iso
+from tutoring.common import (
+    accepted_for_matching_filter_for_draft,
+    current_semester,
+    mark_all_applications_pending_for_draft,
+    now_iso,
+    oid_or_400,
+)
 from tutoring.matching import SUBJECTS, pair_allowed_hard, pair_weight, run_matching_cpsat
 from tutoring.mongo import get_db
 from tutoring.structures.documents import (
@@ -16,46 +22,36 @@ from tutoring.structures.documents import (
     serialize,
 )
 from tutoring.structures.schemas import (
+    CreateDraftPayload,
+    DuplicateDraftPayload,
     LastSemesterPairsPayload,
     IndividualMatchPayload,
     OverridePayload,
     ReassignMatchPayload,
     RunMatchingPayload,
     SectionPayload,
+    UpdateDraftPayload,
 )
 from tutoring.utils.jwt import get_current_admin
 
 router = APIRouter(tags=["operations"])
 
 
-@router.get("/api/sections")
-def list_sections() -> list[dict[str, Any]]:
-    db = get_db()
-    return [serialize(s) for s in db.sections.find().sort("_id", 1)]
-
-
-@router.post("/api/sections")
-def create_section(payload: SectionPayload) -> dict[str, Any]:
-    if not payload.name.strip():
-        raise HTTPException(status_code=400, detail="Section name required")
-    db = get_db()
-    doc = {"name": payload.name.strip(), "time_block": (payload.time_block or "").strip()}
-    result = db.sections.insert_one(doc)
-    doc["_id"] = str(result.inserted_id)
-    return doc
-
-
-@router.get("/api/assignments")
-def list_assignments(semester: str | None = None) -> list[dict[str, Any]]:
-    db = get_db()
-    semester = semester or current_semester()
-    rows = list(db.matches.find({"semester": semester, "status": "active"}).sort("_id", 1))
+def serialize_assignments_for_draft(
+    db: Any,
+    draft_oid: ObjectId,
+    semester: str,
+) -> list[dict[str, Any]]:
+    draft_hex = str(draft_oid)
+    rows = list(
+        db.matches.find({"semester": semester, "status": "active", "draft_id": draft_oid}).sort("_id", 1)
+    )
     out: list[dict[str, Any]] = []
     for row in rows:
         tutor = db.tutorApplications.find_one({"_id": row["tutor_id"]}) if row.get("tutor_id") else None
         tutee = db.tuteeApplications.find_one({"_id": row["student_id"]}) if row.get("student_id") else None
-        t_snap = serialize(normalize_tutor_doc(dict(tutor))) if tutor else None
-        s_snap = serialize(normalize_tutee_doc(dict(tutee))) if tutee else None
+        t_snap = serialize(normalize_tutor_doc(dict(tutor), draft_hex)) if tutor else None
+        s_snap = serialize(normalize_tutee_doc(dict(tutee), draft_hex)) if tutee else None
         out.append(
             {
                 "id": str(row["_id"]),
@@ -78,6 +74,185 @@ def list_assignments(semester: str | None = None) -> list[dict[str, Any]]:
     return out
 
 
+@router.get("/api/sections")
+def list_sections() -> list[dict[str, Any]]:
+    db = get_db()
+    return [serialize(s) for s in db.sections.find().sort("_id", 1)]
+
+
+@router.post("/api/sections")
+def create_section(payload: SectionPayload) -> dict[str, Any]:
+    if not payload.name.strip():
+        raise HTTPException(status_code=400, detail="Section name required")
+    db = get_db()
+    doc = {"name": payload.name.strip(), "time_block": (payload.time_block or "").strip()}
+    result = db.sections.insert_one(doc)
+    doc["_id"] = str(result.inserted_id)
+    return doc
+
+
+# ── Drafts ───────────────────────────────────────────────────────────
+
+
+@router.get("/api/drafts")
+def list_drafts(semester: str | None = None) -> list[dict[str, Any]]:
+    db = get_db()
+    sem = semester or current_semester()
+    docs = list(db.matching_drafts.find({"semester": sem}).sort("createdAt", 1))
+    return [serialize(d) for d in docs]
+
+
+@router.post("/api/drafts")
+def create_draft(
+    payload: CreateDraftPayload,
+    _admin: dict[str, str] = Depends(get_current_admin),
+) -> dict[str, Any]:
+    db = get_db()
+    sem = payload.semester or current_semester()
+    if not payload.name.strip():
+        raise HTTPException(status_code=400, detail="Draft name required")
+    doc = {
+        "name": payload.name.strip(),
+        "semester": sem,
+        "createdAt": now_iso(),
+        "updatedAt": now_iso(),
+    }
+    result = db.matching_drafts.insert_one(doc)
+    doc["_id"] = result.inserted_id
+    mark_all_applications_pending_for_draft(db, result.inserted_id)
+    return serialize(doc)
+
+
+@router.patch("/api/drafts/{draft_id}")
+def rename_draft(
+    draft_id: str,
+    payload: UpdateDraftPayload,
+    _admin: dict[str, str] = Depends(get_current_admin),
+) -> dict[str, Any]:
+    db = get_db()
+    draft_oid = oid_or_400(draft_id, detail="Invalid draft_id")
+    if not payload.name.strip():
+        raise HTTPException(status_code=400, detail="Draft name required")
+    result = db.matching_drafts.find_one_and_update(
+        {"_id": draft_oid},
+        {"$set": {"name": payload.name.strip(), "updatedAt": now_iso()}},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    return serialize(result)
+
+
+@router.delete("/api/drafts/{draft_id}")
+def delete_draft(
+    draft_id: str,
+    _admin: dict[str, str] = Depends(get_current_admin),
+) -> dict[str, bool]:
+    db = get_db()
+    draft_oid = oid_or_400(draft_id, detail="Invalid draft_id")
+    existing = db.matching_drafts.find_one({"_id": draft_oid})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    db.matches.delete_many({"draft_id": draft_oid})
+    db.matching_drafts.delete_one({"_id": draft_oid})
+    return {"ok": True}
+
+
+@router.post("/api/drafts/{draft_id}/duplicate")
+def duplicate_draft(
+    draft_id: str,
+    payload: DuplicateDraftPayload,
+    _admin: dict[str, str] = Depends(get_current_admin),
+) -> dict[str, Any]:
+    db = get_db()
+    source_oid = oid_or_400(draft_id, detail="Invalid draft_id")
+    source = db.matching_drafts.find_one({"_id": source_oid})
+    if not source:
+        raise HTTPException(status_code=404, detail="Source draft not found")
+    if not payload.name.strip():
+        raise HTTPException(status_code=400, detail="Draft name required")
+
+    new_draft = {
+        "name": payload.name.strip(),
+        "semester": source["semester"],
+        "createdAt": now_iso(),
+        "updatedAt": now_iso(),
+    }
+    new_draft_id = db.matching_drafts.insert_one(new_draft).inserted_id
+    mark_all_applications_pending_for_draft(db, new_draft_id)
+
+    source_matches = list(db.matches.find({"draft_id": source_oid}))
+    if source_matches:
+        for m in source_matches:
+            m.pop("_id")
+            m["draft_id"] = new_draft_id
+            m["createdAt"] = now_iso()
+        db.matches.insert_many(source_matches)
+
+    new_draft["_id"] = new_draft_id
+    return serialize(new_draft)
+
+
+# ── Admin dashboard (single round-trip) ─────────────────────────────
+
+
+@router.get("/api/admin/dashboard/workspace")
+def admin_dashboard_workspace(
+    draft_id: str | None = Query(None, description="When omitted, uses the first draft for this semester."),
+    _admin: dict[str, str] = Depends(get_current_admin),
+) -> dict[str, Any]:
+    """Drafts, tutors, tutees, and assignments for one draft in one response (aligned counts)."""
+    db = get_db()
+    sem = current_semester()
+    drafts_raw = list(db.matching_drafts.find({"semester": sem}).sort("createdAt", 1))
+    drafts_ser = [serialize(d) for d in drafts_raw]
+
+    active_oid: ObjectId | None = None
+    list_sem: str = sem
+
+    if draft_id and draft_id.strip():
+        active_oid = oid_or_400(draft_id.strip(), detail="Invalid draft_id")
+        ddoc = db.matching_drafts.find_one({"_id": active_oid})
+        if not ddoc:
+            raise HTTPException(status_code=404, detail="Draft not found")
+        list_sem = str(ddoc.get("semester") or sem)
+    elif drafts_raw:
+        active_oid = drafts_raw[0]["_id"]
+        list_sem = str(drafts_raw[0].get("semester") or sem)
+
+    dkey: str | None = str(active_oid) if active_oid is not None else None
+    tutors = [
+        serialize(normalize_tutor_doc(dict(t), dkey)) for t in db.tutorApplications.find().sort("_id", -1)
+    ]
+    tutees = [
+        serialize(normalize_tutee_doc(dict(t), dkey)) for t in db.tuteeApplications.find().sort("_id", -1)
+    ]
+
+    assignments: list[dict[str, Any]] = []
+    active_draft_id_str: str | None = str(active_oid) if active_oid is not None else None
+    if active_oid is not None:
+        assignments = serialize_assignments_for_draft(db, active_oid, list_sem)
+
+    return {
+        "drafts": drafts_ser,
+        "tutors": tutors,
+        "tutees": tutees,
+        "assignments": assignments,
+        "activeDraftId": active_draft_id_str,
+    }
+
+
+# ── Assignments ──────────────────────────────────────────────────────
+
+
+@router.get("/api/assignments")
+def list_assignments(draft_id: str, semester: str | None = None) -> list[dict[str, Any]]:
+    db = get_db()
+    semester = semester or current_semester()
+    draft_oid = oid_or_400(draft_id, detail="Invalid draft_id")
+    return serialize_assignments_for_draft(db, draft_oid, semester)
+
+
 @router.post("/api/assignments/individual-match")
 def individual_match(
     payload: IndividualMatchPayload,
@@ -86,6 +261,7 @@ def individual_match(
     """Pairwise soft score and hard eligibility for individual-match preview (same rules as CP-SAT edges)."""
     db = get_db()
     resolved_sem = payload.semester or current_semester()
+    draft_oid = oid_or_400(payload.draft_id, detail="Invalid draft_id")
     tmp_rows: list[dict[str, Any]] = []
 
     if payload.fixed_tutor_id:
@@ -96,7 +272,7 @@ def individual_match(
         raw_anchor = db.tutorApplications.find_one({"_id": anchor_oid})
         if not raw_anchor:
             raise HTTPException(status_code=404, detail="Tutor not found")
-        anchor_tutor = normalize_tutor_doc(dict(raw_anchor))
+        anchor_tutor = normalize_tutor_doc(dict(raw_anchor), str(draft_oid))
 
         for cid in payload.candidate_tutee_ids:
             cs = str(cid).strip()
@@ -109,7 +285,7 @@ def individual_match(
             raw_c = db.tuteeApplications.find_one({"_id": coid})
             if not raw_c:
                 continue
-            tutee_d = normalize_tutee_doc(dict(raw_c))
+            tutee_d = normalize_tutee_doc(dict(raw_c), str(draft_oid))
             eligible = pair_allowed_hard(anchor_tutor, tutee_d)
             soft = pair_weight(anchor_tutor, tutee_d)
             name = (
@@ -135,7 +311,7 @@ def individual_match(
         raw_anchor = db.tuteeApplications.find_one({"_id": anchor_oid})
         if not raw_anchor:
             raise HTTPException(status_code=404, detail="Tutee not found")
-        anchor_tutee = normalize_tutee_doc(dict(raw_anchor))
+        anchor_tutee = normalize_tutee_doc(dict(raw_anchor), str(draft_oid))
 
         for cid in payload.candidate_tutor_ids:
             cs = str(cid).strip()
@@ -148,13 +324,13 @@ def individual_match(
             raw_c = db.tutorApplications.find_one({"_id": coid})
             if not raw_c:
                 continue
-            tutor_d = normalize_tutor_doc(dict(raw_c))
+            tutor_d = normalize_tutor_doc(dict(raw_c), str(draft_oid))
             eligible = pair_allowed_hard(tutor_d, anchor_tutee)
             soft = pair_weight(tutor_d, anchor_tutee)
             name = f"{raw_c.get('firstName', '')} {raw_c.get('lastName', '')}".strip() or "—"
             email = str(raw_c.get("email") or "")
             tutee_count = db.matches.count_documents(
-                {"tutor_id": coid, "semester": resolved_sem, "status": "active"},
+                {"tutor_id": coid, "semester": resolved_sem, "status": "active", "draft_id": draft_oid},
             )
             tmp_rows.append(
                 {
@@ -177,10 +353,15 @@ def individual_match(
 def run_matching_endpoint(payload: RunMatchingPayload) -> dict[str, Any]:
     db = get_db()
     semester = payload.semester or current_semester()
+    draft_oid = oid_or_400(payload.draft_id, detail="Invalid draft_id")
 
-    af = accepted_for_matching_filter()
-    tutor_docs = [normalize_tutor_doc(dict(t)) for t in db.tutorApplications.find(af)]
-    tutee_docs = [normalize_tutee_doc(dict(t)) for t in db.tuteeApplications.find(af)]
+    # Verify the draft exists
+    if not db.matching_drafts.find_one({"_id": draft_oid}):
+        raise HTTPException(status_code=404, detail="Draft not found")
+
+    af = accepted_for_matching_filter_for_draft(draft_oid)
+    tutor_docs = [normalize_tutor_doc(dict(t), str(draft_oid)) for t in db.tutorApplications.find(af)]
+    tutee_docs = [normalize_tutee_doc(dict(t), str(draft_oid)) for t in db.tuteeApplications.find(af)]
     section_docs = list(db.sections.find())
     if not section_docs:
         sid = db.sections.insert_one({"name": "Section A", "time_block": "TBD"}).inserted_id
@@ -190,7 +371,7 @@ def run_matching_endpoint(payload: RunMatchingPayload) -> dict[str, Any]:
     student_map: dict[int, Any] = {j: s["_id"] for j, s in enumerate(tutee_docs)}
 
     result = run_matching_cpsat(tutor_docs=tutor_docs, tutee_docs=tutee_docs)
-    db.matches.delete_many({"semester": semester})
+    db.matches.delete_many({"semester": semester, "draft_id": draft_oid})
 
     inserted = 0
     default_section_oid = section_docs[0]["_id"] if section_docs else None
@@ -208,6 +389,7 @@ def run_matching_endpoint(payload: RunMatchingPayload) -> dict[str, Any]:
                 "student_id": student_oid,
                 "section_id": default_section_oid,
                 "semester": semester,
+                "draft_id": draft_oid,
                 "manual_override": False,
                 "status": "active",
                 "reason": a.get("reason", "cpsat"),
@@ -256,6 +438,7 @@ def reassign_match(
     _admin: dict[str, str] = Depends(get_current_admin),
 ) -> dict[str, bool]:
     db = get_db()
+    draft_oid = oid_or_400(payload.draft_id, detail="Invalid draft_id")
     try:
         match_oid = ObjectId(payload.match_id)
         tutor_oid = ObjectId(payload.tutor_id)
@@ -271,7 +454,7 @@ def reassign_match(
     section_id = existing.get("section_id")
 
     db.matches.delete_one({"_id": match_oid})
-    db.matches.delete_many({"student_id": student_oid, "semester": semester})
+    db.matches.delete_many({"student_id": student_oid, "semester": semester, "draft_id": draft_oid})
 
     db.matches.insert_one(
         {
@@ -279,6 +462,7 @@ def reassign_match(
             "student_id": student_oid,
             "section_id": section_id,
             "semester": semester,
+            "draft_id": draft_oid,
             "manual_override": True,
             "status": "active",
             "reason": "manual_reassign",
@@ -295,6 +479,7 @@ def override_assignment(
 ) -> dict[str, bool]:
     db = get_db()
     semester = payload.semester or current_semester()
+    draft_oid = oid_or_400(payload.draft_id, detail="Invalid draft_id")
     try:
         tutor_oid = ObjectId(payload.tutor_id)
         student_oid = ObjectId(payload.student_id)
@@ -302,13 +487,14 @@ def override_assignment(
     except Exception as exc:
         raise HTTPException(status_code=400, detail="Invalid object id") from exc
 
-    db.matches.delete_many({"student_id": student_oid, "semester": semester})
+    db.matches.delete_many({"student_id": student_oid, "semester": semester, "draft_id": draft_oid})
     db.matches.insert_one(
         {
             "tutor_id": tutor_oid,
             "student_id": student_oid,
             "section_id": section_oid,
             "semester": semester,
+            "draft_id": draft_oid,
             "manual_override": True,
             "status": "active",
             "reason": "manual_override",

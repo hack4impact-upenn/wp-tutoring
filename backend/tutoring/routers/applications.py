@@ -6,7 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from tutoring.common import oid_or_400, patch_application_status
+from tutoring.common import oid_or_400, patch_application_status_for_draft
 from tutoring.mongo import get_db
 from tutoring.structures.documents import (
     normalize_tutee_doc,
@@ -15,7 +15,8 @@ from tutoring.structures.documents import (
     tutee_application_doc_from_payload,
     tutor_application_doc_from_payload,
 )
-from tutoring.structures.schemas import ApplicationStatusPayload, TuteePayload, TutorPayload
+from tutoring.common import now_iso
+from tutoring.structures.schemas import ApplicationStatusPayload, BulkAcceptPayload, TuteePayload, TutorPayload
 from tutoring.utils.jwt import get_current_admin
 
 router = APIRouter(tags=["applications"])
@@ -98,6 +99,28 @@ def create_tutee(payload: TuteePayload) -> dict[str, Any]:
     return serialize(normalize_tutee_doc(doc))
 
 
+@router.post("/api/applications/accept-all")
+def accept_all(
+    payload: BulkAcceptPayload,
+    _admin: dict[str, str] = Depends(get_current_admin),
+) -> dict[str, Any]:
+    """Set applicationStatus to 'accepted' for every tutor or tutee in a given draft."""
+    db = get_db()
+    draft_oid = oid_or_400(payload.draft_id.strip(), detail="Invalid draft_id")
+    if not db.matching_drafts.find_one({"_id": draft_oid}):
+        raise HTTPException(status_code=404, detail="Draft not found")
+
+    draft_hex = str(draft_oid)
+    field = f"draftApplicationStatus.{draft_hex}"
+    coll = db.tutorApplications if payload.collection == "tutors" else db.tuteeApplications
+
+    result = coll.update_many(
+        {field: {"$ne": "accepted"}},
+        {"$set": {field: "accepted", "updatedAt": now_iso()}},
+    )
+    return {"ok": True, "modifiedCount": result.modified_count}
+
+
 @router.patch("/api/tutors/{tutor_id}")
 def patch_tutor_status(
     tutor_id: str,
@@ -106,9 +129,13 @@ def patch_tutor_status(
 ) -> dict[str, Any]:
     db = get_db()
     oid = oid_or_400(tutor_id, detail="Invalid tutor id")
-    return patch_application_status(
+    draft_oid = oid_or_400(payload.draft_id.strip(), detail="Invalid draft_id")
+    if not db.matching_drafts.find_one({"_id": draft_oid}):
+        raise HTTPException(status_code=404, detail="Draft not found")
+    return patch_application_status_for_draft(
         db.tutorApplications,
         oid,
+        str(draft_oid),
         payload.applicationStatus,
         normalize=normalize_tutor_doc,
         not_found_detail="Tutor not found",
@@ -123,9 +150,13 @@ def patch_tutee_status(
 ) -> dict[str, Any]:
     db = get_db()
     oid = oid_or_400(tutee_id, detail="Invalid tutee id")
-    return patch_application_status(
+    draft_oid = oid_or_400(payload.draft_id.strip(), detail="Invalid draft_id")
+    if not db.matching_drafts.find_one({"_id": draft_oid}):
+        raise HTTPException(status_code=404, detail="Draft not found")
+    return patch_application_status_for_draft(
         db.tuteeApplications,
         oid,
+        str(draft_oid),
         payload.applicationStatus,
         normalize=normalize_tutee_doc,
         not_found_detail="Tutee not found",

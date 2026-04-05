@@ -126,10 +126,8 @@ export function AdminsView({ isActive }: AdminsViewProps) {
             <CardTitle>Administrators</CardTitle>
             <CardDescription>
               The API sends email when SMTP (<code className="text-xs">SMTP_USER</code>,{" "}
-              <code className="text-xs">SMTP_PASSWORD</code>) or Resend (<code className="text-xs">
-                RESEND_API_KEY
-              </code>
-              ) plus <code className="text-xs">EMAIL_FROM</code> are set. Otherwise the invite is saved and
+              <code className="text-xs">SMTP_PASSWORD</code>,{" "}
+              <code className="text-xs">EMAIL_FROM</code>) are set. Otherwise the invite is saved and
               you copy the link here.
             </CardDescription>
           </div>
@@ -149,8 +147,8 @@ export function AdminsView({ isActive }: AdminsViewProps) {
             <AlertTitle>No email was sent from the server</AlertTitle>
             <AlertDescription className="space-y-3">
               <p>
-                The invite is saved, but the API did not send email (missing Resend credentials or
-                misconfiguration). Copy this link and send it securely (expires in 7 days):
+                The invite is saved, but the API did not send email (SMTP not configured).
+                Copy this link and send it securely (expires in 7 days):
               </p>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 <code className="min-w-0 flex-1 break-all rounded border bg-background px-2 py-1.5 text-xs">

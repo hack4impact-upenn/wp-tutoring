@@ -2,9 +2,8 @@
 
 export const adminKeys = {
   all: ["admin"] as const,
-  tutors: () => [...adminKeys.all, "tutors"] as const,
-  tutees: () => [...adminKeys.all, "tutees"] as const,
-  assignments: () => [...adminKeys.all, "assignments"] as const,
+  /** Empty string = server picks first draft for current semester. */
+  workspace: (draftKey: string) => [...adminKeys.all, "workspace", draftKey] as const,
   adminsList: () => [...adminKeys.all, "admins-list"] as const,
 }
 
@@ -26,6 +25,7 @@ export function matchPreviewKey(args: {
   fixedTutorId: string
   fixedTuteeId: string
   semester: string
+  draftId: string
   candidateTutorIds: string
   candidateTuteeIds: string
 }) {
@@ -35,6 +35,7 @@ export function matchPreviewKey(args: {
     args.fixedTutorId,
     args.fixedTuteeId,
     args.semester,
+    args.draftId,
     args.candidateTutorIds,
     args.candidateTuteeIds,
   ] as const

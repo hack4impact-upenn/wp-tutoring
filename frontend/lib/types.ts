@@ -191,3 +191,22 @@ export interface RunMatchingResultAssignmentExplanation {
   summary?: string
   breakdown?: Array<{ code?: string; points?: number; label?: string }>
 }
+
+// ── Drafts ─────────────────────────────────────────────────────────
+
+export interface MatchingDraft {
+  _id: string
+  name: string
+  semester: string
+  createdAt: string
+  updatedAt: string
+}
+
+/** Bundled admin dashboard payload (drafts + roster + assignments for one draft). */
+export interface AdminWorkspacePayload {
+  drafts: MatchingDraft[]
+  tutors: TutorApplication[]
+  tutees: TuteeApplication[]
+  assignments: AssignmentRow[]
+  activeDraftId: string | null
+}

@@ -1,5 +1,16 @@
+import { useMemo, useState } from "react"
 import { useSearchPagination } from "../hooks/use-search-pagination"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Card,
   CardContent,
@@ -28,6 +39,7 @@ import { getId } from "../types"
 import { ExportDropdown, exportTutorsCsv, exportTutorsXls } from "../components/export"
 import { statusSelectTriggerClass } from "../components/application-status-ui"
 import { NameSearchInput, PaginationControls } from "./dashboard-shared"
+import { CheckCheck } from "lucide-react"
 
 export type TutorsViewProps = {
   tutors: Tutor[]
@@ -37,6 +49,7 @@ export type TutorsViewProps = {
   activeTab: string
   onOpenTutorProfile: (t: Tutor) => void
   onTutorStatusChange: (t: Tutor, status: ApplicationStatus) => void
+  onAcceptAll?: () => void
 }
 
 export function TutorsView({
@@ -45,7 +58,15 @@ export function TutorsView({
   activeTab,
   onOpenTutorProfile,
   onTutorStatusChange,
+  onAcceptAll,
 }: TutorsViewProps) {
+  const [acceptAllOpen, setAcceptAllOpen] = useState(false)
+
+  const nonAcceptedCount = useMemo(
+    () => tutors.filter((t) => (t.applicationStatus ?? "accepted") !== "accepted").length,
+    [tutors],
+  )
+
   const { search, setSearch, filtered, paged, paginationProps } = useSearchPagination({
     items: tutors,
     dataRevision,
@@ -60,13 +81,21 @@ export function TutorsView({
           <CardTitle>Tutor Applications</CardTitle>
           <CardDescription>All submitted tutor applications from MongoDB.</CardDescription>
         </div>
-        {tutors.length > 0 && (
-          <ExportDropdown
-            label="Export Tutors"
-            onCsv={() => exportTutorsCsv(tutors)}
-            onXls={() => exportTutorsXls(tutors)}
-          />
-        )}
+        <div className="flex items-center gap-2">
+          {nonAcceptedCount > 0 && onAcceptAll && (
+            <Button variant="outline" size="sm" type="button" onClick={() => setAcceptAllOpen(true)}>
+              <CheckCheck className="mr-2 h-4 w-4" />
+              Accept all
+            </Button>
+          )}
+          {tutors.length > 0 && (
+            <ExportDropdown
+              label="Export Tutors"
+              onCsv={() => exportTutorsCsv(tutors)}
+              onXls={() => exportTutorsXls(tutors)}
+            />
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         {tutors.length === 0 ? (
@@ -145,6 +174,29 @@ export function TutorsView({
           </>
         )}
       </CardContent>
+
+      <AlertDialog open={acceptAllOpen} onOpenChange={setAcceptAllOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Accept all tutors?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will set {nonAcceptedCount} tutor{nonAcceptedCount === 1 ? "" : "s"} to Accepted
+              status. This action can be undone individually.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                onAcceptAll?.()
+                setAcceptAllOpen(false)
+              }}
+            >
+              Accept all
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   )
 }

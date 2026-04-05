@@ -41,6 +41,7 @@ export function ChangeMatchDialog({
   tutors,
   tutees,
   onSuccess,
+  draftId,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -48,6 +49,7 @@ export function ChangeMatchDialog({
   tutors: Tutor[]
   tutees: Tutee[]
   onSuccess: () => void
+  draftId: string | null
 }) {
   const { adminToken } = useAuth()
 
@@ -64,7 +66,8 @@ export function ChangeMatchDialog({
       semester: string | undefined
     }) => {
       if (!adminToken) throw new Error("no_token")
-      await reassignMatch({ matchId, tutorId, studentId, semester: sem }, adminToken)
+      if (!draftId) throw new Error("no_draft")
+      await reassignMatch({ matchId, tutorId, studentId, semester: sem, draftId }, adminToken)
     },
     onSuccess: () => {
       toast.success("Match updated")
@@ -222,6 +225,7 @@ export function ChangeMatchDialog({
               tutors={tutors}
               tutees={tutees}
               semester={semester}
+              draftId={draftId}
               searchInputId="admin-change-match-search"
               listTitle={listTitle}
               helperText="Rows are sorted by matcher correlation (eligible pairs first). Click a row to select, then update the match."

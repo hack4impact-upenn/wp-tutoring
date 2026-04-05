@@ -4,6 +4,13 @@ export { getTutors, createTutor, lookupTutorByPennId, patchTutorStatus } from ".
 export { getTutees, lookupTuteeByParentEmail, createTutee, patchTuteeStatus } from "./tutees"
 export { adminLogin, adminMe, getAdmins, inviteAdmin, completeAdminInvite, deleteAdminInvite } from "./admin"
 export {
+  acceptAll,
+  getAdminWorkspace,
+  getDrafts,
+  createDraft,
+  renameDraft,
+  deleteDraft,
+  duplicateDraft,
   getAssignments,
   runMatching,
   reassignMatch,
@@ -13,6 +20,7 @@ export {
 
 // Re-export types for convenience (consumers can also import from @/lib/types directly)
 export type {
+  AdminWorkspacePayload,
   AdminAuthSuccess,
   AdminAccountStatus,
   AdminRow,
@@ -21,6 +29,7 @@ export type {
   AssignmentRow,
   IndividualMatchCandidateRow,
   IndividualMatchResponse,
+  MatchingDraft,
   RunMatchingResult,
   RunMatchingResultAssignmentExplanation,
 } from "@/lib/types"

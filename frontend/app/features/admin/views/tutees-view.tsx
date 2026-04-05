@@ -1,5 +1,16 @@
+import { useMemo, useState } from "react"
 import { useSearchPagination } from "../hooks/use-search-pagination"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   Card,
   CardContent,
@@ -28,6 +39,7 @@ import { getId } from "../types"
 import { ExportDropdown, exportTuteesCsv, exportTuteesXls } from "../components/export"
 import { statusSelectTriggerClass } from "../components/application-status-ui"
 import { NameSearchInput, PaginationControls } from "./dashboard-shared"
+import { CheckCheck } from "lucide-react"
 
 export type TuteesViewProps = {
   tutees: Tutee[]
@@ -35,6 +47,7 @@ export type TuteesViewProps = {
   activeTab: string
   onOpenTuteeProfile: (t: Tutee) => void
   onTuteeStatusChange: (t: Tutee, status: ApplicationStatus) => void
+  onAcceptAll?: () => void
 }
 
 export function TuteesView({
@@ -43,7 +56,15 @@ export function TuteesView({
   activeTab,
   onOpenTuteeProfile,
   onTuteeStatusChange,
+  onAcceptAll,
 }: TuteesViewProps) {
+  const [acceptAllOpen, setAcceptAllOpen] = useState(false)
+
+  const nonAcceptedCount = useMemo(
+    () => tutees.filter((t) => (t.applicationStatus ?? "accepted") !== "accepted").length,
+    [tutees],
+  )
+
   const { search, setSearch, filtered, paged, paginationProps } = useSearchPagination({
     items: tutees,
     dataRevision,
@@ -58,13 +79,21 @@ export function TuteesView({
           <CardTitle>Tutee Applications</CardTitle>
           <CardDescription>All submitted tutee applications from MongoDB.</CardDescription>
         </div>
-        {tutees.length > 0 && (
-          <ExportDropdown
-            label="Export Tutees"
-            onCsv={() => exportTuteesCsv(tutees)}
-            onXls={() => exportTuteesXls(tutees)}
-          />
-        )}
+        <div className="flex items-center gap-2">
+          {nonAcceptedCount > 0 && onAcceptAll && (
+            <Button variant="outline" size="sm" type="button" onClick={() => setAcceptAllOpen(true)}>
+              <CheckCheck className="mr-2 h-4 w-4" />
+              Accept all
+            </Button>
+          )}
+          {tutees.length > 0 && (
+            <ExportDropdown
+              label="Export Tutees"
+              onCsv={() => exportTuteesCsv(tutees)}
+              onXls={() => exportTuteesXls(tutees)}
+            />
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         {tutees.length === 0 ? (
@@ -145,6 +174,29 @@ export function TuteesView({
           </>
         )}
       </CardContent>
+
+      <AlertDialog open={acceptAllOpen} onOpenChange={setAcceptAllOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Accept all tutees?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will set {nonAcceptedCount} tutee{nonAcceptedCount === 1 ? "" : "s"} to Accepted
+              status. This action can be undone individually.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                onAcceptAll?.()
+                setAcceptAllOpen(false)
+              }}
+            >
+              Accept all
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   )
 }
