@@ -10,10 +10,12 @@ node_modules/
 .env
 .DS_Store
 
-# Frontend (Next.js)
+# Frontend (Vite)
 frontend/node_modules/
 frontend/.next/
+frontend/dist/
 frontend/.env
+frontend/tsconfig.tsbuildinfo
 
 # Backend (Django)
 backend/.venv/
