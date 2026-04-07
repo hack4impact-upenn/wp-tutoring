@@ -5,6 +5,7 @@ from __future__ import annotations
 from bson import ObjectId
 
 from tutoring.matching import (
+    WEIGHT_GENDER_MATCH,
     WEIGHT_PREFERRED_TUTOR,
     WEIGHT_SUBJECT_MATCH,
     gender_allows,
@@ -66,11 +67,24 @@ def test_pair_score_explanation_preferred_tutor() -> None:
     assert WEIGHT_PREFERRED_TUTOR in [x["points"] for x in expl["breakdown"]]
 
 
-def test_gender_strict_blocks_pair() -> None:
+def test_gender_mismatch_soft_not_hard() -> None:
     t = _tutor(tutorGender="Male")
     s = _tutee(requiredGender="Female")
     assert not gender_allows(t, s)
-    assert not pair_allowed_hard(t, s)
+    assert pair_allowed_hard(t, s)
+    bd = pair_score_breakdown(t, s)
+    assert not any(x["code"] == "gender_match" for x in bd)
+
+
+def test_gender_match_adds_soft_bonus() -> None:
+    t = _tutor(tutorGender="Female")
+    s = _tutee(requiredGender="Female")
+    assert gender_allows(t, s)
+    assert pair_allowed_hard(t, s)
+    bd = pair_score_breakdown(t, s)
+    gm = [x for x in bd if x["code"] == "gender_match"]
+    assert len(gm) == 1
+    assert gm[0]["points"] == WEIGHT_GENDER_MATCH
 
 
 def test_required_returning_pin_and_reason() -> None:

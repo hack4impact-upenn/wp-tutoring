@@ -1,8 +1,8 @@
 """
 Matching for West Philadelphia Tutoring Project.
 
-OR-Tools CP-SAT — partial matching (maximize assignments), capacity, overlap + gender (hard),
-returning-pair bonus (soft), sibling same-tutor equality, relaxation passes.
+OR-Tools CP-SAT — partial matching (maximize assignments), capacity, overlap (hard),
+gender preference (soft), returning-pair bonus (soft), sibling same-tutor equality, relaxation passes.
 
 Legacy greedy matcher is retained as `run_matching` for reference/tests.
 """
@@ -23,9 +23,10 @@ WEIGHT_SUBJECT_MATCH = 80
 WEIGHT_AP_IB = 50
 WEIGHT_PREFERRED_TIME = 20
 WEIGHT_PREFERRED_TUTOR = 45
+WEIGHT_GENDER_MATCH = 55
 
 # Partial matching: prioritize number of assignments, then soft scores / returning preference.
-# Must exceed the maximum possible soft-score sum for one edge (~295).
+# Must exceed the maximum possible soft-score sum for one edge (~350 with all soft flags).
 WEIGHT_EACH_ASSIGNED_PAIR = 10_000
 # Soft bias toward requiredTutorId when still returningStatus == "required" (no hard pin).
 WEIGHT_REQUIRED_RETURNING_PAIR = 5_000
@@ -97,9 +98,18 @@ def _tutor_oid_str(tutor_doc: dict[str, Any]) -> str:
     return str(oid)
 
 
+def _tutee_gender_preference(tutee_doc: dict[str, Any]) -> str:
+    """Coalesce canonical requiredGender and legacy genderPreference."""
+    g = tutee_doc.get("requiredGender")
+    if g is None or not str(g).strip():
+        g = tutee_doc.get("genderPreference") or "Any"
+    return str(g).strip()
+
+
 def gender_allows(tutor_doc: dict[str, Any], tutee_doc: dict[str, Any]) -> bool:
-    req = (tutee_doc.get("requiredGender") or "Any").strip()
-    if req.lower() == "any" or not req:
+    """True if tutor satisfies the student's gender preference (Unknown tutor never matches a specific ask)."""
+    req = _tutee_gender_preference(tutee_doc)
+    if req.lower() in ("any", "no preference", ""):
         return True
     tg = (tutor_doc.get("tutorGender") or "Unknown").strip()
     if tg.lower() == "unknown":
@@ -107,9 +117,20 @@ def gender_allows(tutor_doc: dict[str, Any], tutee_doc: dict[str, Any]) -> bool:
     return tg.lower() == req.lower()
 
 
+def gender_match_bonus(tutor_doc: dict[str, Any], tutee_doc: dict[str, Any]) -> bool:
+    """Soft: student asked for a specific gender and tutor is known to match."""
+    req = _tutee_gender_preference(tutee_doc)
+    if req.lower() in ("any", "no preference", ""):
+        return False
+    tg = (tutor_doc.get("tutorGender") or "Unknown").strip()
+    if tg.lower() == "unknown":
+        return False
+    return tg.lower() == req.lower()
+
+
 def pair_allowed_hard(tutor_doc: dict[str, Any], tutee_doc: dict[str, Any]) -> bool:
-    """Hard feasibility: shared availability and gender rule."""
-    return has_time_overlap(tutor_doc, tutee_doc) and gender_allows(tutor_doc, tutee_doc)
+    """Hard feasibility: shared availability only (gender is a soft objective)."""
+    return has_time_overlap(tutor_doc, tutee_doc)
 
 
 def _tutor_capacity(tutor_doc: dict[str, Any]) -> int:
@@ -235,6 +256,14 @@ def pair_score_breakdown(
                 "label": "Student grade is within tutor grade preferences",
             }
         )
+    if gender_match_bonus(tutor_doc, tutee_doc):
+        items.append(
+            {
+                "code": "gender_match",
+                "points": WEIGHT_GENDER_MATCH,
+                "label": "Tutor gender matches student preference",
+            }
+        )
     if subject_match_bonus(tutor_doc, tutee_doc):
         items.append(
             {
@@ -336,7 +365,7 @@ def relax_returning_constraints(
     tutee_docs: list[dict[str, Any]],
     log: list[str],
 ) -> None:
-    """Downgrade required→preferred when tutor missing, no overlap, or gender mismatch."""
+    """Downgrade required→preferred when tutor missing or no shared availability with required tutor."""
     for j, s in enumerate(tutee_docs):
         if s.get("returningStatus") != "required":
             continue
@@ -359,7 +388,7 @@ def relax_returning_constraints(
             s["returningStatus"] = "preferred"
             s.setdefault("preferredTutorId", str(rid))
             log.append(
-                f"Relax returning student index {j}: no shared availability or gender mismatch with required tutor; status→preferred."
+                f"Relax returning student index {j}: no shared availability with required tutor; status→preferred."
             )
 
 
@@ -438,7 +467,7 @@ def run_matching_cpsat(
 ) -> dict[str, Any]:
     """
     CP-SAT (partial): maximize the number of assignments, then soft scores and returning bias, subject to:
-      - each tutee has at most one tutor with shared availability + gender,
+      - each tutee has at most one tutor with shared availability,
       - each tutor at most maxCapacity,
       - required returning pairs get objective bonus (no hard pin),
       - siblings with the same familyId share the same tutor (when not relaxed).
