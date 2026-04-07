@@ -93,6 +93,23 @@ def _normalize_tutor_doc(doc: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _sanitize_previous_tutor_ids(raw: list[Any] | None) -> list[str]:
+    """Deduplicated list of valid Mongo ObjectId strings for tutee previous tutors."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for x in raw or []:
+        s = str(x).strip()
+        if not s or s in seen:
+            continue
+        try:
+            ObjectId(s)
+        except Exception:
+            continue
+        seen.add(s)
+        out.append(s)
+    return out
+
+
 def _normalize_tutee_doc(doc: dict[str, Any]) -> dict[str, Any]:
     """Backfill canonical CP-SAT fields for legacy records."""
     out = dict(doc)
@@ -104,6 +121,11 @@ def _normalize_tutee_doc(doc: dict[str, Any]) -> dict[str, Any]:
     out.setdefault("subjectNeeds", out.get("subjects") or [])
     out.setdefault("grade", out.get("studentGrade") or "")
     out.setdefault("preferredTimeSlots", [])
+    pt = out.get("previousTutorIds")
+    if not isinstance(pt, list):
+        out["previousTutorIds"] = []
+    else:
+        out["previousTutorIds"] = _sanitize_previous_tutor_ids(pt)
     return out
 
 
@@ -145,6 +167,7 @@ class TuteePayload(BaseModel):
     siblingNames: str | None = ""
     siblingPreference: str = "No Preference"
     previousTutorNames: str | None = ""
+    previousTutorIds: list[str] = Field(default_factory=list)
     additionalNotes: str | None = ""
     # Canonical CP-SAT fields
     requiredTutorId: str | None = None
@@ -301,6 +324,7 @@ def create_tutee(payload: TuteePayload) -> dict[str, Any]:
         "siblingNames": payload.siblingNames or "",
         "siblingPreference": payload.siblingPreference,
         "previousTutorNames": payload.previousTutorNames or "",
+        "previousTutorIds": _sanitize_previous_tutor_ids(payload.previousTutorIds),
         "additionalNotes": payload.additionalNotes or "",
         # Canonical CP-SAT fields
         "requiredTutorId": payload.requiredTutorId,

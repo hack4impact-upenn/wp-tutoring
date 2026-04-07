@@ -2,7 +2,7 @@
 Matching for West Philadelphia Tutoring Project.
 
 OR-Tools CP-SAT — partial matching (maximize assignments), capacity, overlap (hard),
-gender preference (soft), returning-pair bonus (soft), sibling same-tutor equality, relaxation passes.
+gender preference (soft), designated-tutor objective bonus (soft), sibling same-tutor equality, relaxation passes.
 
 Legacy greedy matcher is retained as `run_matching` for reference/tests.
 """
@@ -22,14 +22,13 @@ WEIGHT_AGE_MATCH = 100
 WEIGHT_SUBJECT_MATCH = 80
 WEIGHT_AP_IB = 50
 WEIGHT_PREFERRED_TIME = 20
-WEIGHT_PREFERRED_TUTOR = 45
 WEIGHT_GENDER_MATCH = 55
 
-# Partial matching: prioritize number of assignments, then soft scores / returning preference.
-# Must exceed the maximum possible soft-score sum for one edge (~350 with all soft flags).
+# Partial matching: prioritize number of assignments, then soft scores / designated tutor.
+# Must exceed the maximum possible soft-score sum for one edge (~305 without preferred-tutor line).
 WEIGHT_EACH_ASSIGNED_PAIR = 10_000
-# Soft bias toward requiredTutorId when still returningStatus == "required" (no hard pin).
-WEIGHT_REQUIRED_RETURNING_PAIR = 5_000
+# Objective-only bonus: tutee names this tutor via requiredTutorId, preferredTutorId, or previousTutorIds.
+WEIGHT_SPECIFIC_TUTOR_PAIR = 5_000
 
 
 def parse_list(s):
@@ -288,15 +287,6 @@ def pair_score_breakdown(
                 "label": "Shared slot includes a student preferred time",
             }
         )
-    pref = tutee_doc.get("preferredTutorId")
-    if pref and str(pref).strip() == _tutor_oid_str(tutor_doc):
-        items.append(
-            {
-                "code": "preferred_tutor",
-                "points": WEIGHT_PREFERRED_TUTOR,
-                "label": "Assigned tutor matches preferredTutorId",
-            }
-        )
     return items
 
 
@@ -316,14 +306,50 @@ def pair_weight(tutor_doc: dict[str, Any], tutee_doc: dict[str, Any]) -> int:
     return sum(b["points"] for b in pair_score_breakdown(tutor_doc, tutee_doc))
 
 
-def required_returning_objective_bonus(tutor_doc: dict[str, Any], tutee_doc: dict[str, Any]) -> int:
-    """Extra objective weight for assigning a required-returning student to their required tutor."""
-    if tutee_doc.get("returningStatus") != "required":
+def _tutee_previous_tutor_id_set(tutee_doc: dict[str, Any]) -> set[str]:
+    raw = tutee_doc.get("previousTutorIds") or []
+    if not isinstance(raw, list):
+        return set()
+    return {str(x).strip() for x in raw if str(x).strip()}
+
+
+def specific_tutor_objective_bonus(tutor_doc: dict[str, Any], tutee_doc: dict[str, Any]) -> int:
+    """
+    Large objective weight when this pair is a designated tutor for the tutee:
+    requiredTutorId, preferredTutorId, or membership in previousTutorIds (at most once per edge).
+    """
+    tid = _tutor_oid_str(tutor_doc)
+    if not tid:
         return 0
     rid = tutee_doc.get("requiredTutorId")
-    if not rid or str(rid).strip() != _tutor_oid_str(tutor_doc):
-        return 0
-    return WEIGHT_REQUIRED_RETURNING_PAIR
+    if rid and str(rid).strip() == tid:
+        return WEIGHT_SPECIFIC_TUTOR_PAIR
+    pref = tutee_doc.get("preferredTutorId")
+    if pref and str(pref).strip() == tid:
+        return WEIGHT_SPECIFIC_TUTOR_PAIR
+    if tid in _tutee_previous_tutor_id_set(tutee_doc):
+        return WEIGHT_SPECIFIC_TUTOR_PAIR
+    return 0
+
+
+def specific_tutor_assignment_reason(
+    tutor_doc: dict[str, Any], tutee_doc: dict[str, Any]
+) -> str | None:
+    """Reason tag when assignment hits the designated-tutor objective (for API / logs)."""
+    tid = _tutor_oid_str(tutor_doc)
+    if not tid:
+        return None
+    rid = tutee_doc.get("requiredTutorId")
+    if rid and str(rid).strip() == tid:
+        if tutee_doc.get("returningStatus") == "required":
+            return "required_returning"
+        return "required_tutor"
+    pref = tutee_doc.get("preferredTutorId")
+    if pref and str(pref).strip() == tid:
+        return "preferred_tutor"
+    if tid in _tutee_previous_tutor_id_set(tutee_doc):
+        return "previous_tutor"
+    return None
 
 
 def family_same_tutor_feasible(
@@ -469,7 +495,7 @@ def run_matching_cpsat(
     CP-SAT (partial): maximize the number of assignments, then soft scores and returning bias, subject to:
       - each tutee has at most one tutor with shared availability,
       - each tutor at most maxCapacity,
-      - required returning pairs get objective bonus (no hard pin),
+      - designated tutor (required / preferred / previous tutor ids) get objective bonus (no hard pin),
       - siblings with the same familyId share the same tutor (when not relaxed).
 
     tutor_docs / tutee_docs must include normalized canonical fields (see matching_schema_contract.md).
@@ -558,7 +584,7 @@ def _solve_cpsat_core(
         (
             WEIGHT_EACH_ASSIGNED_PAIR
             + soft_weights[(i, j)]
-            + required_returning_objective_bonus(tutor_docs[i], tutee_docs[j])
+            + specific_tutor_objective_bonus(tutor_docs[i], tutee_docs[j])
         )
         * x[(i, j)]
         for i in range(n_t)
@@ -595,14 +621,7 @@ def _solve_cpsat_core(
         for j in range(n_s):
             if solver.Value(x[(i, j)]) == 1:
                 w = soft_weights[(i, j)]
-                reason = "cpsat"
-                rid = tutee_docs[j].get("requiredTutorId")
-                if (
-                    tutee_docs[j].get("returningStatus") == "required"
-                    and rid
-                    and str(rid).strip() == _tutor_oid_str(tutor_docs[i])
-                ):
-                    reason = "required_returning"
+                reason = specific_tutor_assignment_reason(tutor_docs[i], tutee_docs[j]) or "cpsat"
                 expl = pair_score_explanation(tutor_docs[i], tutee_docs[j])
                 assignments.append(
                     {
