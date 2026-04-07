@@ -26,6 +26,9 @@
       ],
       "@/lib/*": [
         "./lib/*"
+      ],
+      "@/features/*": [
+        "./app/features/*"
       ]
     }
   },
