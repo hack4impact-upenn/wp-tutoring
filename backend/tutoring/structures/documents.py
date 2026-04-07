@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from bson import ObjectId
+
 from tutoring.common import now_iso
 from tutoring.structures.schemas import TuteePayload, TutorPayload
 
@@ -12,6 +14,23 @@ def serialize(doc: dict[str, Any]) -> dict[str, Any]:
     out = dict(doc)
     if "_id" in out:
         out["_id"] = str(out["_id"])
+    return out
+
+
+def sanitize_previous_tutor_ids(raw: list[Any] | None) -> list[str]:
+    """Deduplicated list of valid Mongo ObjectId strings for tutee previous tutors."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for x in raw or []:
+        s = str(x).strip()
+        if not s or s in seen:
+            continue
+        try:
+            ObjectId(s)
+        except Exception:
+            continue
+        seen.add(s)
+        out.append(s)
     return out
 
 
@@ -63,6 +82,11 @@ def normalize_tutee_doc(doc: dict[str, Any], draft_id: str | None = None) -> dic
     out.setdefault("subjectNeeds", out.get("subjects") or [])
     out.setdefault("grade", out.get("studentGrade") or "")
     out.setdefault("preferredTimeSlots", [])
+    pt = out.get("previousTutorIds")
+    if not isinstance(pt, list):
+        out["previousTutorIds"] = []
+    else:
+        out["previousTutorIds"] = sanitize_previous_tutor_ids(pt)
     if draft_id:
         overrides = out.get("draftApplicationStatus") or {}
         if isinstance(overrides, dict) and draft_id in overrides:
@@ -117,6 +141,7 @@ def tutee_application_doc_from_payload(payload: TuteePayload) -> dict[str, Any]:
         "siblingNames": payload.siblingNames or "",
         "siblingPreference": payload.siblingPreference,
         "previousTutorNames": payload.previousTutorNames or "",
+        "previousTutorIds": sanitize_previous_tutor_ids(payload.previousTutorIds),
         "additionalNotes": payload.additionalNotes or "",
         "requiredTutorId": payload.requiredTutorId,
         "preferredTutorId": payload.preferredTutorId,

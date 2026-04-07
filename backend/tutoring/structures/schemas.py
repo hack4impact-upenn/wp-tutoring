@@ -44,6 +44,7 @@ class TuteePayload(BaseModel):
     siblingNames: str | None = ""
     siblingPreference: str = "No Preference"
     previousTutorNames: str | None = ""
+    previousTutorIds: list[str] = Field(default_factory=list)
     additionalNotes: str | None = ""
     requiredTutorId: str | None = None
     preferredTutorId: str | None = None

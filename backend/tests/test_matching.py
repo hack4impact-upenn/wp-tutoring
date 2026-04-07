@@ -5,7 +5,8 @@ from __future__ import annotations
 from bson import ObjectId
 
 from tutoring.matching import (
-    WEIGHT_PREFERRED_TUTOR,
+    WEIGHT_GENDER_MATCH,
+    WEIGHT_SPECIFIC_TUTOR_PAIR,
     WEIGHT_SUBJECT_MATCH,
     gender_allows,
     pair_allowed_hard,
@@ -13,6 +14,7 @@ from tutoring.matching import (
     pair_score_explanation,
     pair_weight,
     run_matching_cpsat,
+    specific_tutor_objective_bonus,
 )
 
 
@@ -56,21 +58,34 @@ def test_pair_weight_matches_breakdown_sum() -> None:
     assert "subject_match" in codes
 
 
-def test_pair_score_explanation_preferred_tutor() -> None:
+def test_preferred_tutor_uses_objective_bonus_not_soft_breakdown() -> None:
     tid = ObjectId()
     t = _tutor(tid)
     s = _tutee(preferredTutorId=str(tid))
     expl = pair_score_explanation(t, s)
     codes = [x["code"] for x in expl["breakdown"]]
-    assert "preferred_tutor" in codes
-    assert WEIGHT_PREFERRED_TUTOR in [x["points"] for x in expl["breakdown"]]
+    assert "preferred_tutor" not in codes
+    assert specific_tutor_objective_bonus(t, s) == WEIGHT_SPECIFIC_TUTOR_PAIR
 
 
-def test_gender_strict_blocks_pair() -> None:
+def test_gender_mismatch_soft_not_hard() -> None:
     t = _tutor(tutorGender="Male")
     s = _tutee(requiredGender="Female")
     assert not gender_allows(t, s)
-    assert not pair_allowed_hard(t, s)
+    assert pair_allowed_hard(t, s)
+    bd = pair_score_breakdown(t, s)
+    assert not any(x["code"] == "gender_match" for x in bd)
+
+
+def test_gender_match_adds_soft_bonus() -> None:
+    t = _tutor(tutorGender="Female")
+    s = _tutee(requiredGender="Female")
+    assert gender_allows(t, s)
+    assert pair_allowed_hard(t, s)
+    bd = pair_score_breakdown(t, s)
+    gm = [x for x in bd if x["code"] == "gender_match"]
+    assert len(gm) == 1
+    assert gm[0]["points"] == WEIGHT_GENDER_MATCH
 
 
 def test_required_returning_pin_and_reason() -> None:
@@ -84,6 +99,15 @@ def test_required_returning_pin_and_reason() -> None:
     assert a["reason"] == "required_returning"
     assert "explanation" in a
     assert a["explanation"]["totalSoftScore"] == a["score"]
+
+
+def test_previous_tutor_ids_objective_and_reason() -> None:
+    tid = ObjectId()
+    t = _tutor(tid)
+    s = _tutee(previousTutorIds=[str(tid)])
+    assert specific_tutor_objective_bonus(t, s) == WEIGHT_SPECIFIC_TUTOR_PAIR
+    r = run_matching_cpsat([t], [s])
+    assert r["assignments"][0]["reason"] == "previous_tutor"
 
 
 def test_relax_returning_then_assign_alternate_tutor() -> None:

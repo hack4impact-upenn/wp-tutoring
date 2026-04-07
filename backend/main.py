@@ -20,6 +20,7 @@ app = FastAPI(title="WPTP API", version="1.0.0")
 def _run_migrations():
     ensure_draft_migration()
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
