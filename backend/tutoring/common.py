@@ -32,15 +32,22 @@ def accepted_for_matching_filter() -> dict[str, Any]:
 
 
 def accepted_for_matching_filter_for_draft(draft_oid: ObjectId) -> dict[str, Any]:
-    """Accepted for CP-SAT for a specific matching draft (per-draft status overrides legacy applicationStatus)."""
+    """Who may be included in CP-SAT for this draft.
+
+    Includes **accepted** and **pending** (new signups and default status on new drafts).
+    Excludes **waitlist** and any other status.
+    Per-draft ``draftApplicationStatus`` overrides legacy ``applicationStatus`` when set.
+    """
     d = str(draft_oid)
+    ok = {"$in": ["accepted", "pending"]}
+    legacy_ok = {"$in": ["accepted", "pending"]}
     return {
         "$or": [
-            {f"draftApplicationStatus.{d}": "accepted"},
+            {f"draftApplicationStatus.{d}": ok},
             {
                 "$and": [
                     {f"draftApplicationStatus.{d}": {"$exists": False}},
-                    {"$or": [{"applicationStatus": "accepted"}, {"applicationStatus": {"$exists": False}}]},
+                    {"$or": [{"applicationStatus": legacy_ok}, {"applicationStatus": {"$exists": False}}]},
                 ],
             },
         ],

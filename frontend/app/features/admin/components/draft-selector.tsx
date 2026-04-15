@@ -25,6 +25,8 @@ interface DraftSelectorProps {
   drafts: MatchingDraft[]
   selectedDraftId: string | null
   onSelect: (draftId: string) => void
+  /** Warm workspace cache before the user clicks a draft (hover). */
+  onPrefetchDraft?: (draftId: string) => void
   onCreateDraft: (name: string) => void
   onDeleteDraft: (draftId: string) => void
   onRenameDraft: (draftId: string, name: string) => void
@@ -36,6 +38,7 @@ export function DraftSelector({
   drafts,
   selectedDraftId,
   onSelect,
+  onPrefetchDraft,
   onCreateDraft,
   onDeleteDraft,
   onRenameDraft,
@@ -94,6 +97,7 @@ export function DraftSelector({
               <DropdownMenuItem
                 key={draft._id}
                 className="flex items-center justify-between gap-2"
+                onPointerEnter={() => onPrefetchDraft?.(draft._id)}
                 onSelect={() => {
                   onSelect(draft._id)
                 }}

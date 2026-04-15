@@ -4,13 +4,18 @@
   "description": "West Philadelphia Tutoring — frontend (Vite + React) and backend (FastAPI + MongoDB)",
   "scripts": {
     "dev": "npm run dev --prefix frontend",
+    "dev:all": "npm run dev:backend:kill && concurrently -k -n api,web -c blue,green \"npm run dev:backend\" \"npm run dev\"",
     "dev:frontend": "npm run dev --prefix frontend",
-    "dev:backend": "cd backend && ./venv/bin/uvicorn main:app --host 0.0.0.0 --port 8001 --reload",
+    "dev:backend:kill": "sh -c 'lsof -ti:8000 | xargs kill -9 2>/dev/null; exit 0'",
+    "dev:backend": "cd backend && ./venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
     "build": "npm run build --prefix frontend",
     "start": "npm run preview --prefix frontend",
     "lint": "npm run lint --prefix frontend"
   },
   "dependencies": {
     "mongodb": "^6.21.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
   }
 }

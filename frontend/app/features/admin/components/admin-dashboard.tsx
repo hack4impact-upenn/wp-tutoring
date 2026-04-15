@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import {
@@ -36,7 +36,12 @@ import {
 } from "@/lib/api"
 import { adminKeys } from "@/lib/query-keys"
 import { useAuth } from "@/features/auth/AuthContext"
-import type { AdminWorkspacePayload, ApplicationStatus } from "@/lib/types"
+import type {
+  AdminWorkspacePayload,
+  ApplicationStatus,
+  TuteeApplication,
+  TutorApplication,
+} from "@/lib/types"
 import { toast } from "sonner"
 import {
   Users,
@@ -57,6 +62,35 @@ import { TuteesView } from "../views/tutees-view"
 import { MatchesView } from "../views/matches-view"
 import { UnmatchedView } from "../views/unmatched-view"
 import { AdminsView } from "../views/admins-view"
+
+function mergeTutorIntoWorkspace(
+  prev: AdminWorkspacePayload | undefined,
+  updated: TutorApplication,
+): AdminWorkspacePayload | undefined {
+  if (!prev) return prev
+  const uid = String(updated._id ?? updated.id ?? "")
+  if (!uid) return prev
+  return {
+    ...prev,
+    tutors: prev.tutors.map((t) => (getId(t) === uid ? updated : t)),
+  }
+}
+
+function mergeTuteeIntoWorkspace(
+  prev: AdminWorkspacePayload | undefined,
+  updated: TuteeApplication,
+): AdminWorkspacePayload | undefined {
+  if (!prev) return prev
+  const uid = String(updated._id ?? updated.id ?? "")
+  if (!uid) return prev
+  return {
+    ...prev,
+    tutees: prev.tutees.map((t) => (getId(t) === uid ? updated : t)),
+  }
+}
+
+/** Keep draft workspace payloads warm so switching drafts does not wait on the network. */
+const WORKSPACE_STALE_MS = 5 * 60_000
 
 export function AdminDashboard() {
   const queryClient = useQueryClient()
@@ -85,7 +119,20 @@ export function AdminDashboard() {
     },
     enabled: !!adminToken,
     placeholderData: keepPreviousData,
+    staleTime: WORKSPACE_STALE_MS,
   })
+
+  const prefetchWorkspaceForDraft = useCallback(
+    (draftId: string) => {
+      if (!adminToken || !draftId) return
+      void queryClient.prefetchQuery({
+        queryKey: adminKeys.workspace(draftId),
+        queryFn: () => getAdminWorkspace(adminToken, draftId),
+        staleTime: WORKSPACE_STALE_MS,
+      })
+    },
+    [adminToken, queryClient],
+  )
 
   const ws = workspaceQuery.data
   const drafts = ws?.drafts ?? []
@@ -94,6 +141,18 @@ export function AdminDashboard() {
   const assignments = ws?.assignments ?? []
   const activeDraftId = selectedDraftId ?? ws?.activeDraftId ?? null
   const selectedDraft = activeDraftId ? drafts.find((d) => d._id === activeDraftId) ?? null : null
+
+  const draftIdsKey = useMemo(() => drafts.map((d) => d._id).filter(Boolean).join(","), [drafts])
+
+  const prefetchedDraftsRef = useRef<string>("")
+  useEffect(() => {
+    if (!adminToken || !draftIdsKey) return
+    if (prefetchedDraftsRef.current === draftIdsKey) return
+    prefetchedDraftsRef.current = draftIdsKey
+    for (const id of draftIdsKey.split(",")) {
+      if (id) prefetchWorkspaceForDraft(id)
+    }
+  }, [adminToken, draftIdsKey, prefetchWorkspaceForDraft])
 
   useEffect(() => {
     if (drafts.length === 0) {
@@ -106,6 +165,7 @@ export function AdminDashboard() {
   }, [drafts, selectedDraftId])
 
   const invalidateWorkspace = useCallback(() => {
+    prefetchedDraftsRef.current = ""
     void queryClient.invalidateQueries({ queryKey: [...adminKeys.all, "workspace"] })
   }, [queryClient])
 
@@ -260,8 +320,11 @@ export function AdminDashboard() {
       if (!adminToken) throw new Error("no_token")
       return patchTutorStatus(getId(t), status, adminToken, draftId)
     },
-    onSuccess: () => {
-      invalidateWorkspace()
+    onSuccess: (data) => {
+      queryClient.setQueryData<AdminWorkspacePayload | undefined>(
+        adminKeys.workspace(workspaceDraftKey),
+        (old) => mergeTutorIntoWorkspace(old, data),
+      )
       toast.success("Status updated")
     },
     onError: (err) => {
@@ -286,8 +349,11 @@ export function AdminDashboard() {
       if (!adminToken) throw new Error("no_token")
       return patchTuteeStatus(getId(t), status, adminToken, draftId)
     },
-    onSuccess: () => {
-      invalidateWorkspace()
+    onSuccess: (data) => {
+      queryClient.setQueryData<AdminWorkspacePayload | undefined>(
+        adminKeys.workspace(workspaceDraftKey),
+        (old) => mergeTuteeIntoWorkspace(old, data),
+      )
       toast.success("Status updated")
     },
     onError: (err) => {
@@ -421,6 +487,7 @@ export function AdminDashboard() {
         drafts={drafts}
         selectedDraftId={activeDraftId}
         onSelect={setSelectedDraftId}
+        onPrefetchDraft={prefetchWorkspaceForDraft}
         onCreateDraft={(name) => createDraftMutation.mutate(name)}
         onDeleteDraft={(id) => deleteDraftMutation.mutate(id)}
         onRenameDraft={(id, name) => renameDraftMutation.mutate({ draftId: id, name })}
